@@ -156,6 +156,18 @@ analysis.json の `dep_type` に基づいて変換戦略を選択し、pixi.toml
 - **E2**: setup.cfg の `[options]` から `install_requires` を読み → E1 と同じ
 - **E3**: requirements.txt を優先して Type B として処理、setup.py は editable install にのみ使用
 
+### Type D (Dockerfile系) のフロー
+
+**dep-converter スキルの Dockerfile パースルールに従って変換。**
+
+- **D1**: Dockerfile の `pip install` コマンドを解析 → パッケージリストを抽出 → Type B のフローに合流。`FROM` からCUDA バージョン推定、`apt-get install` は conda-forge マッピングで変換
+- **D2**: Dockerfile の `conda install` コマンドを解析 → チャンネルとパッケージを抽出 → Type A のフローに合流
+- **D3**: apt 依存を conda-forge マッピングで `[dependencies]` に、pip 依存を `[pypi-dependencies]` に変換。`ENV` の環境変数は `[activation]` scripts に変換
+
+### Type F (依存ファイルなし) のフロー
+
+- **F**: README.md の Installation セクションからコマンド抽出 → ソースコードの import 文を全スキャン → 標準ライブラリ除外 → import 名→PyPI パッケージ名マッピング（dep-converter 参照）→ `pixi init` → 推定 deps を `[pypi-dependencies]` に追加 → `pixi install` → エラーから不足パッケージを反復追加
+
 ### 共通処理（全 Type で適用する denkiwakame ルール）
 
 1. **defaults チャンネル除去**: channels から "defaults" を削除
@@ -192,13 +204,132 @@ while not succeeded:
 
 ## Phase 3: 推論実行
 
-1. モデルダウンロード（analysis.json の model_download に基づく）
-2. デモ/推論スクリプト実行: `pixi run python {demo_command}`
-3. 失敗時の段階的フォールバック:
-   - Tier 1: missing module → `pixi add --pypi {module}`
-   - Tier 2: OOM → batch size 削減 → 解像度削減 → CPU fallback
-   - Tier 3: 根本的問題 → レポートに記載
-4. attempts.tsv にログ追記
+**experiment-loop スキルを参照して実行。**
+
+### Step 1: モデルダウンロード
+
+analysis.json の `model_download` に基づいてモデルをダウンロード:
+
+| method | 実行方法 |
+|--------|---------|
+| `wget` | `pixi run python -c "import urllib.request; ..."` or `wget` コマンド |
+| `gdown` | `pixi run gdown {file_id} -O {output_path}` |
+| `huggingface` | `pixi run python -c "from huggingface_hub import hf_hub_download; ..."` |
+| `script` | README 記載のダウンロードスクリプトを実行 |
+
+**gdown --folder の注意（二重ネスト問題）:**
+- `gdown --folder URL -O /workspace/weights/` は `/workspace/weights/weights/` になる
+- 回避策: 一時ディレクトリにダウンロード後、中身を目的のパスに移動:
+  ```bash
+  pixi run gdown --folder {url} -O /tmp/dl_tmp/
+  mv /tmp/dl_tmp/*/* {target_path}/
+  rm -rf /tmp/dl_tmp
+  ```
+
+**ダウンロード失敗時:**
+- URL が切れている → README の代替リンクを探す、HuggingFace Hub を検索
+- 認証が必要 → Tier 3 としてレポートに記載
+- 容量が大きすぎる → 軽量版モデルがあれば代替
+
+### Step 2: Headless GUI 対策
+
+Docker コンテナ内は headless 環境。CV 論文は GUI コードを含むことが多いため、実行前にモンキーパッチを適用:
+
+**cv2 の GUI 関数をモック:**
+```python
+import cv2
+cv2.imshow = lambda *a, **kw: None
+cv2.waitKey = lambda *a, **kw: 0
+cv2.destroyAllWindows = lambda: None
+cv2.namedWindow = lambda *a, **kw: None
+```
+
+**open3d の可視化をモック:**
+```python
+# open3d.visualization 使用時
+import open3d as o3d
+if hasattr(o3d, 'visualization'):
+    o3d.visualization.draw_geometries = lambda *a, **kw: None
+```
+
+**matplotlib のバックエンド設定:**
+```python
+import matplotlib
+matplotlib.use('Agg')  # 非 GUI バックエンド
+```
+
+**適用方法:** 対象スクリプトの先頭に monkey-patch を挿入するラッパースクリプトを作成するか、対象スクリプトを直接編集（git commit で記録）。
+
+### Step 3: デモ/推論スクリプト実行
+
+```bash
+START_TIME=$(date +%s)
+pixi run python {demo_command} 2>&1 | tee inference.log
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+```
+
+### Step 4: 失敗時の段階的フォールバック
+
+**Tier 1: Trivial Fix（自動修正して即リトライ）**
+
+| エラー | 自動修正 |
+|--------|---------|
+| `ModuleNotFoundError: {module}` | `pixi add --pypi {module}` して再実行 |
+| `FileNotFoundError` (モデルファイル) | Step 1 のダウンロードを再試行 |
+| `cv2.error: ... display` | Step 2 の headless 対策を適用 |
+| `ImportError: cannot import name ...` | バージョンを調整して再インストール |
+
+**Tier 2: OOM 5段階フォールバック**
+
+GPU メモリ不足（`CUDA out of memory` / `RuntimeError: CUDA error`）時の段階的対策:
+
+```
+Step 1: torch.cuda.empty_cache() を推論前に追加
+Step 2: batch_size を半減（コマンドライン引数 or コード内定数を変更）
+Step 3: 入力解像度を半減（--resolution, --img_size 等）
+Step 4: with torch.no_grad() + torch.cuda.amp.autocast() を適用
+Step 5: CPU fallback（CUDA_VISIBLE_DEVICES="" で再実行）
+```
+
+各ステップで pixi.toml ではなくスクリプトやコマンドライン引数を変更する。git commit で変更を記録。
+
+**Tier 3: 根本的問題（レポートに記載）**
+
+| エラー | 対応 |
+|--------|------|
+| 特定 GPU アーキテクチャ必須 | CPU fallback を試し、それも失敗ならレポート |
+| データセットが非公開 / 巨大 | サンプルデータで代替を試みる。不可��らレポート |
+| 認証が必要（API key 等） | レポートに手動設定の指示を記載 |
+| SegmentationFault | レポートに記載 |
+
+### Step 5: attempts.tsv にログ追記
+
+**CRITICAL: 成功・失敗を問わず毎回必ず記録する。**
+
+```bash
+COMMIT=$(git rev-parse --short HEAD)
+echo -e "${ATTEMPT}\t${COMMIT}\tinference\t${ACTION}\t${RESULT}\t${TIER}\t${SUMMARY}\t${DURATION}" >> attempts.tsv
+```
+
+### Experiment Loop (Phase 3)
+
+```
+while not inference_succeeded:
+  1. START_TIME=$(date +%s)  ← 省略禁止
+  2. スクリプト修正 or パラメータ変更
+  3. git add -A && git commit -m "attempt #{n}: {action}"
+  4. pixi run python {demo_command} 2>&1 | tee inference.log
+  5. END_TIME=$(date +%s) && DURATION=$((END_TIME - START_TIME))  ← 省略禁止
+  6. attempts.tsv にログ追記  ← 省略禁止
+  7. 結果判定:
+     成功（出力ファイルが生成された）→ Phase 4 へ
+     失敗 → diagnose + classify:
+       Tier 1: auto-fix → retry
+       Tier 2: OOM fallback → retry
+       Tier 3: report に記載 → Phase 4 へ（status = partial or failed）
+  8. 失敗時: git reset --hard HEAD~1
+```
 
 ---
 

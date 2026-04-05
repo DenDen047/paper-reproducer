@@ -22,8 +22,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && npm install -g @anthropic-ai/claude-code
 
 # pueue: バッチ処理用タスクキュー（複数リポジトリの連続実行に使用）
-RUN curl -fsSL https://github.com/Nukesor/pueue/releases/latest/download/pueued-linux-x86_64 -o /usr/local/bin/pueued \
-    && curl -fsSL https://github.com/Nukesor/pueue/releases/latest/download/pueue-linux-x86_64 -o /usr/local/bin/pueue \
+RUN curl -fsSL https://github.com/Nukesor/pueue/releases/latest/download/pueued-x86_64-unknown-linux-musl -o /usr/local/bin/pueued \
+    && curl -fsSL https://github.com/Nukesor/pueue/releases/latest/download/pueue-x86_64-unknown-linux-musl -o /usr/local/bin/pueue \
     && chmod +x /usr/local/bin/pueued /usr/local/bin/pueue
 
 COPY . /paper-reproduce-skills

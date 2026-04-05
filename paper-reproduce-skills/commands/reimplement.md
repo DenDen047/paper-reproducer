@@ -126,7 +126,7 @@ environment.yml exists?
 
 ## Phase 2: Pixi 環境構築
 
-**pixi-env-builder スキルと cuda-dependency-resolver スキルを参照して実行。**
+**pixi-env-builder スキル、dep-converter スキル、cuda-dependency-resolver スキルを参照して実行。**
 
 analysis.json の `dep_type` に基づいて変換戦略を選択し、pixi.toml を生成する。
 
@@ -136,10 +136,30 @@ analysis.json の `dep_type` に基づいて変換戦略を選択し、pixi.toml
 - **A2**: environment.yml から submodule 行を除去 → cleaned.yml を作成 → `pixi init --import cleaned.yml` → defaults 除去 → ベースで `pixi install` → submodule を1つずつ pypi-dependencies に追加 → no-build-isolation 設定 → 完了後 cleaned.yml を削除
 - **A3**: A2 と同様 + requirements.txt の差分を pypi-deps に追加
 
+### Type B (pip系) のフロー
+
+**dep-converter スキルの requirements.txt パースルールに従って変換。**
+
+- **B1**: `pixi init` → requirements.txt を dep-converter ルールで `[pypi-dependencies]` に変換 → PyTorch は `extra-index-urls` で CUDA wheel を指定 → `pixi install`
+- **B2**: B1 + プロジェクト自体を `{ path = ".", editable = true }` で追加
+- **B3**: `_dev` / `_test` ファイルを除外して残りを統合 → B1 のフローへ
+
+### Type C (pyproject.toml系) のフロー
+
+- **C1**: `pixi init --pyproject` → `[tool.pixi]` セクションを設定 → プロジェクトを editable install → `pixi install`
+- **C2**: Poetry のバージョン記法を PEP 440 に変換（dep-converter 参照）→ C1 のフローへ
+- **C3**: PDM は PEP 621 準拠なので C1 と同じフロー
+
+### Type E (setup.py/setup.cfg系) のフロー
+
+- **E1**: AST パースで `install_requires` を抽出 → Type B の変換フローへ + editable install
+- **E2**: setup.cfg の `[options]` から `install_requires` を読み → E1 と同じ
+- **E3**: requirements.txt を優先して Type B として処理、setup.py は editable install にのみ使用
+
 ### 共通処理（全 Type で適用する denkiwakame ルール）
 
 1. **defaults チャンネル除去**: channels から "defaults" を削除
-2. **CUDA 統一**: PyPI wheel の場合は cuda-toolkit、conda の場合は gcc/gxx も追加
+2. **CUDA 統一**: PyPI wheel の場合は cuda-toolkit、conda の場合は `cuda` メタパッケージ + gcc/gxx も追加（cuda-dependency-resolver スキル参照）
 3. **system-requirements.cuda 設定**: ホストドライバ要件の申告
 4. **submodule → pypi-dependencies 変換**: editable install + no-build-isolation
 5. **Divide-and-Conquer**: ベース deps だけで通す → submodule を1つずつ追加

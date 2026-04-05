@@ -2,20 +2,38 @@
 
 CV 論文の GitHub リポジトリを、Claude Code エージェントで全自動再現する Claude Code プラグイン。
 
-論文リポジトリを clone して `/reimplement` と打つだけで、依存解析 → Pixi 環境構築 → 推論実行 → レポート生成まで自動で行う。失敗しても自律的にリトライし続ける（NEVER STOP）。
-
 ## Why
 
 研究論文のコードを動かすのに最も時間がかかるのは環境構築。conda / pip / Docker / CUDA の混在を人手で解決するのは苦痛で、1リポジトリに数時間〜数日かかることもある。
 
 本ツールは [denkiwakame 氏の Pixi ワークフロー](https://denkiwakame.notion.site/2ba3175c6b6a80d19141f5407c39ad4e?v=2ba3175c6b6a80a7acfe000c6c1b2117)に準拠し、あらゆる依存管理方式を Pixi に収束させることでこの問題を自動化する。
 
+## Install
+
+```bash
+# Docker イメージをビルド（初回のみ）
+cd paper-reproduce-skills
+docker build -t paper-reproduce .
+```
+
+Requirements: Docker, NVIDIA Container Toolkit (GPU 使用時), Claude 認証 (API key or サブスク)
+
 ## Usage
 
 ```bash
+# 1. 対象リポジトリを clone
 git clone https://github.com/user/some-paper.git
 cd some-paper
-claude
+
+# 2. Docker コンテナを起動
+docker run --rm -it \
+  -v $(pwd):/workspace \
+  -v ~/.claude:/home/claude/.claude \
+  --gpus all \
+  --shm-size=8g \
+  paper-reproduce
+
+# 3. Claude Code が起動したら実行
 > /reimplement
 ```
 
@@ -23,6 +41,8 @@ claude
 
 ```
 /reimplement
+    ↓
+[Phase 0] 初期化            git stash, attempts.tsv 初期化
     ↓
 [Phase 1] リポジトリ解析      依存ファイル特定 + 6-Type 分類 → analysis.json
     ↓
@@ -59,7 +79,7 @@ claude
 ## Development
 
 - `main` ブランチをベースに開発。追加機能は `feature/<name>` ブランチを切って実装し、マージする
-- コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) に従う: `feat(analyzer): add Type B support`, `fix(cuda): resolve gcc visibility issue` 等
+- コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) に従う
 
 ## References
 

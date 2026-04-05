@@ -18,7 +18,6 @@ jobs:
           required_files=(
             "paper-reproduce-skills/.claude-plugin/plugin.json"
             "paper-reproduce-skills/Dockerfile"
-            "paper-reproduce-skills/README.md"
             "paper-reproduce-skills/commands/reimplement.md"
             "paper-reproduce-skills/commands/batch-reimplement.md"
             "paper-reproduce-skills/templates/report.html"

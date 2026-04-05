@@ -49,6 +49,7 @@ for url in $REPOS; do
       --plugin-dir /paper-reproduce-skills \
       --print \
       --prompt '/reimplement' &&
+    mkdir -p '$RESULTS_DIR/$REPO_NAME' &&
     cp -f report.json report.html attempts.tsv analysis.json '$RESULTS_DIR/$REPO_NAME/' 2>/dev/null
   "
 done

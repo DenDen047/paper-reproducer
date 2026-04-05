@@ -299,7 +299,7 @@ Step 5: CPU fallback（CUDA_VISIBLE_DEVICES="" で再実行）
 | エラー | 対応 |
 |--------|------|
 | 特定 GPU アーキテクチャ必須 | CPU fallback を試し、それも失敗ならレポート |
-| データセットが非公開 / 巨大 | サンプルデータで代替を試みる。不可��らレポート |
+| データセットが非公開 / 巨大 | サンプルデータで代替を試みる。不可ならレポート |
 | 認証が必要（API key 等） | レポートに手動設定の指示を記載 |
 | SegmentationFault | レポートに記載 |
 
@@ -335,27 +335,85 @@ while not inference_succeeded:
 
 ## Phase 4: レポート生成
 
-1. 中間ファイルのクリーンアップ: cleaned.yml 等の一時ファイルを削除
-2. `report.json` 生成（機械可読）:
-   ```json
-   {
-     "repo_name": "string",
-     "repo_url": "string",
-     "status": "success|partial|failed",
-     "dep_type": "string",
-     "total_attempts": "number",
-     "duration_total_s": "number",
-     "pixi_toml_hash": "string",
-     "inference_output": "string|null",
-     "errors": ["string"]
-   }
-   ```
-   **status の判定基準:**
-   - `success`: pixi install 成功 + 推論実行成功（出力ファイルが生成された）
-   - `partial`: pixi install 成功 + 推論未実行（データセット不在等）、または pixi install 成功 + 推論一部成功
-   - `failed`: pixi install 失敗、または推論が根本的に動作しない
-3. `report.html` 生成（目視確認用）— **必ず attempts.tsv を読み込んで試行履歴テーブルを生成すること**。report.html の試行数と attempts.tsv の行数は一致しなければならない。
-4. 最終状態の pixi.toml + pixi.lock を保持
+### Step 1: 中間ファイルのクリーンアップ
+
+一時ファイルを削除:
+- `cleaned.yml`（Type A2/A3 で作成）
+- `build.log`, `inference.log`（ログは attempts.tsv に集約済み）
+- `_headless_patch.py`（Phase 3 で作成した場合）
+
+### Step 2: report.json 生成（機械可読）
+
+```json
+{
+  "repo_name": "string",
+  "repo_url": "string",
+  "status": "success|partial|failed",
+  "dep_type": "string",
+  "dep_type_label": "string",
+  "total_attempts": "number",
+  "duration_total_s": "number",
+  "pixi_toml_hash": "string",
+  "inference_output": "string|null",
+  "errors": ["string"],
+  "plugin_version": "1.0.0"
+}
+```
+
+**status の判定基準:**
+- `success`: pixi install 成功 + 推論実行成功（出力ファイルが生成された）
+- `partial`: pixi install 成功 + 推論未実行（データセット不在等）、または pixi install 成功 + 推論一部成功
+- `failed`: pixi install 失敗、または推論が根本的に動作しない
+
+**duration_total_s**: attempts.tsv の全 duration_s を合算。
+
+### Step 3: report.html 生成（目視確認用）
+
+**templates/report.html テンプレートを参照して生成する。**
+
+テンプレート内のプレースホルダーを実際の値で置換する:
+
+| プレースホルダー | 値の取得元 |
+|---|---|
+| `{{REPO_NAME}}` | analysis.json の `repo_name` |
+| `{{REPO_URL}}` | analysis.json の `repo_url` |
+| `{{TIMESTAMP}}` | 現在の日時 (ISO 8601) |
+| `{{STATUS}}` | report.json の `status` (`success` / `partial` / `failed`) |
+| `{{DEP_TYPE}}` | analysis.json の `dep_type` + `dep_type_label` |
+| `{{TOTAL_ATTEMPTS}}` | attempts.tsv のデータ行数 |
+| `{{DURATION_TOTAL}}` | 全 duration_s の合算（人間可読形式: "2m 34s"） |
+| `{{ATTEMPTS_ROWS}}` | attempts.tsv の各行を `<tr>` に変換（下記参照） |
+| `{{ARTIFACTS_LIST}}` | 生成物ファイルの `<li>` リスト |
+| `{{PIXI_TOML_CONTENT}}` | pixi.toml の内容（HTML エスケープ済み） |
+| `{{ERRORS_LIST}}` | エラーの `<li>` リスト（`failed`/`partial` 時のみ） |
+| `{{PLUGIN_VERSION}}` | plugin.json の `version` |
+
+**attempts.tsv → HTML テーブル変換:**
+
+attempts.tsv を読み込み、ヘッダー行をスキップしてデータ行を1行ずつ `<tr>` に変換:
+
+```html
+<tr class="result-{result}">
+  <td>{attempt}</td>
+  <td><code>{commit}</code></td>
+  <td>{phase}</td>
+  <td>{action}</td>
+  <td>{result}</td>
+  <td>{error_tier}</td>
+  <td>{error_summary}</td>
+  <td>{duration_s}</td>
+</tr>
+```
+
+**ASSERTION: report.html の `<tr>` 行数 == attempts.tsv のデータ行数。不一致は禁止。**
+
+### Step 4: 成果物の保持
+
+以下のファイルをリポジトリルートに保持:
+- `pixi.toml` + `pixi.lock`（環境の完全な再現に必要）
+- `analysis.json`（解析結果）
+- `attempts.tsv`（全試行ログ）
+- `report.json` + `report.html`（レポート）
 
 ---
 

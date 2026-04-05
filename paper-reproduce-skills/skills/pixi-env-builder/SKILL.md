@@ -166,7 +166,133 @@ PDM は PEP 621 準拠なので C1 と同じフローで処理。
 
 requirements.txt を優先し Type B として処理。setup.py は editable install にのみ使用。
 
-## Type D/F — Phase 3 で実装予定
+## Type D: Dockerfile 系
+
+**dep-converter スキルの Dockerfile パースルールを参照。**
+
+Dockerfile しか依存情報がないケース。命令を解析して Type A または Type B のフローに合流する。
+
+### D1: Dockerfile with pip install
+
+1. Dockerfile をパースし、`pip install` コマンドからパッケージリストを抽出
+2. `pip install -r requirements.txt` があればそのファイルも読む
+3. `FROM` のベースイメージから CUDA バージョンを推定
+4. `apt-get install` からシステム依存を抽出 → dep-converter の apt→conda-forge マッピングで変換
+5. 抽出した pip 依存を Type B のフローに合流:
+
+```bash
+pixi init
+```
+
+```toml
+[workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.11.*"
+# apt-get install から変換した conda-forge パッケージ:
+mesalib = "*"
+glib = "*"
+ffmpeg = "*"
+
+[pypi-dependencies]
+# pip install から抽出:
+torch = "==2.1.0"
+torchvision = "==0.16.0"
+
+[pypi-options]
+extra-index-urls = ["https://download.pytorch.org/whl/cu121"]
+```
+
+### D2: Dockerfile with conda install
+
+1. `conda install` コマンドからチャンネルとパッケージを抽出
+2. `conda env create -f environment.yml` があればそのファイルも読む
+3. 抽出結果を Type A のフローに合流（`pixi init --import` or 手動構築）
+
+### D3: Dockerfile with apt + pip 混在
+
+D1 と同じだが、apt 依存がより多い。apt→conda-forge マッピングで変換し、pip 依存は `[pypi-dependencies]` に:
+
+1. apt パッケージを dep-converter のマッピングで conda-forge パッケージに変換
+2. 対応がないマイナーな apt パッケージはスキップ（ビルドエラーで後から判明したら追加）
+3. pip 依存を Type B の変換フローに渡す
+4. `ENV` 命令の環境変数は pixi の `[activation]` に変換:
+   ```toml
+   [activation]
+   scripts = ["env_vars.sh"]
+   ```
+   `env_vars.sh` に `export CUDA_HOME=...` 等を出力。
+
+### Dockerfile パース時の注意
+
+- **マルチステージビルド**: 最終ステージの依存のみを対象とする。`FROM ... AS builder` のステージはビルドツールのみ
+- **ARG のデフォルト値**: `ARG CUDA_VERSION=12.1` はデフォルト値を使用
+- **COPY --from**: バイナリコピーの場合はビルドステージの deps も必要になることがある
+- **パッケージバージョンの欠落**: Dockerfile は `pip install numpy` のようにバージョン指定なしが多い → `"*"` で追加し、エラーが出たらバージョンを絞る
+
+## Type F: 依存ファイルなし (source mining)
+
+**dep-converter スキルの import→パッケージ名マッピングを参照。**
+
+依存ファイルが一切ないケース。README とソースコードから依存を推定する。
+
+### F: ソースマイニングフロー
+
+1. **README.md から手がかりを抽出**:
+   - "Installation" / "Setup" / "Requirements" セクションの `pip install` / `conda install` コマンド
+   - Python / PyTorch / CUDA のバージョン記述
+
+2. **ソースコードの import 文を全スキャン**:
+   ```bash
+   grep -rh "^import \|^from " --include="*.py" | awk -F'[ .]' '{print $2}' | sort -u
+   ```
+
+3. **標準ライブラリを除外**:
+   - `sys`, `os`, `json`, `pathlib`, `argparse`, `typing`, `collections` 等は除外
+   - Python バージョンの `sys.stdlib_module_names` を参照
+
+4. **import 名 → PyPI パッケージ名に変換**:
+   - dep-converter のマッピングテーブルを適用（cv2→opencv-python 等）
+   - マッピングにない場合は import 名 = パッケージ名と仮定
+
+5. **フレームワーク検出とバージョン推定**:
+   - `torch` / `tensorflow` / `jax` の使用を検出
+   - README やソースのコメントからバージョンを推定
+   - 不明な場合は最新安定版を使用
+
+6. **pixi.toml を構築**:
+   ```bash
+   pixi init
+   ```
+
+   ```toml
+   [workspace]
+   channels = ["conda-forge"]
+   platforms = ["linux-64"]
+
+   [dependencies]
+   python = "3.11.*"
+
+   [pypi-dependencies]
+   torch = ">=2.0"
+   numpy = "*"
+   opencv-python-headless = "*"
+   pillow = "*"
+   # ... 推定した依存
+   ```
+
+7. **反復的な修正**:
+   - `pixi install` → エラーから不足パッケージを追加
+   - `pixi run python {script}` → ImportError から追加パッケージを特定
+   - Experiment Loop で自動修正を繰り返す
+
+### Type F の注意事項
+
+- **過剰な依存追加を避ける**: テストファイルやサンプルスクリプトの import は除外を検討
+- **バージョン制約は緩めに**: 正確なバージョンが不明なので `"*"` or `">=X.0"` で開始
+- **C 拡張の暗黙依存**: import に現れない C ライブラリ依存はビルドエラーから特定 → `pixi add` で追加
 
 ---
 

@@ -42,11 +42,131 @@ pixi init --import environment.yml
 
 A2 と同じフロー + requirements.txt の差分パッケージを pypi-dependencies に追加。
 
-## Type B: pip 系 (requirements.txt) — Phase 2 で実装予定
+## Type B: pip 系 (requirements.txt)
 
-Phase 1 では Type A に集中。Type B は dep-converter スキルと合わせて Phase 2 で実装。
+**dep-converter スキルの requirements.txt パースルールを参照して変換。**
 
-## Type C/D/E/F — Phase 2/3 で実装予定
+CV 論文で最も頻出するパターン。channels は `conda-forge` 単独が最もクリーン。
+
+### B1: requirements.txt のみ
+
+```bash
+pixi init
+```
+
+生成された pixi.toml に対して:
+
+1. `channels = ["conda-forge"]` を設定
+2. `python` バージョンを追加（README / Dockerfile / ソースから推定）
+3. requirements.txt を dep-converter のルールで `[pypi-dependencies]` に変換
+4. PyTorch が含まれる場合:
+   - `+cuXXX` サフィックスから CUDA バージョンを特定
+   - `[pypi-options]` に `extra-index-urls` を追加
+   - `[dependencies]` に `cuda-toolkit` を追加（CUDA 拡張ビルドが必要な場合）
+5. `[system-requirements]` に `cuda` を設定
+
+```toml
+[workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[system-requirements]
+cuda = "12.4"
+
+[dependencies]
+python = "3.11.*"
+cuda-toolkit = "12.4.*"
+
+[pypi-dependencies]
+torch = "==2.6.0"
+torchvision = "==0.21.0"
+numpy = "*"
+opencv-contrib-python = "*"
+
+[pypi-options]
+extra-index-urls = ["https://download.pytorch.org/whl/cu124"]
+```
+
+**Python バージョン選択の注意:**
+- 最新の Python (3.12+) では一部パッケージの wheel が未提供の場合がある（例: open3d）
+- wheel 互換性の問題が出たら Python を1つ下げる（3.12 → 3.11）
+
+### B2: requirements.txt + setup.py
+
+B1 と同じ + プロジェクト自体を editable install:
+
+```toml
+[pypi-dependencies]
+project-name = { path = ".", editable = true }
+```
+
+### B3: 複数の requirements_*.txt
+
+`_dev` / `_test` を含むファイルは除外し、残りを統合して B1 のフローへ。
+
+## Type C: pyproject.toml 系 (modern Python)
+
+**dep-converter スキルの pyproject.toml 変換ルールを参照。**
+
+### C1: setuptools / hatch / flit (PEP 621 準拠)
+
+```bash
+pixi init --pyproject
+```
+
+既存の pyproject.toml に `[tool.pixi]` セクションが追加される。追加で設定:
+
+```toml
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.dependencies]
+python = "3.11.*"
+# CUDA が必要なら:
+cuda-toolkit = "12.4.*"
+
+[tool.pixi.system-requirements]
+cuda = "12.4"
+
+[tool.pixi.pypi-dependencies]
+project-name = { path = ".", editable = true }
+```
+
+### C2: Poetry
+
+1. `[tool.poetry.dependencies]` のバージョン記法を PEP 440 に変換（dep-converter 参照）
+2. `[tool.poetry.group.dev.dependencies]` は除外
+3. 変換後の依存で `[tool.pixi.pypi-dependencies]` を構築
+4. `pixi init --pyproject` で統合
+
+### C3: PDM
+
+PDM は PEP 621 準拠なので C1 と同じフローで処理。
+
+## Type E: setup.py / setup.cfg (legacy)
+
+**dep-converter スキルの setup.py 抽出ルールを参照。**
+
+### E1: setup.py のみ
+
+1. AST パースで `install_requires` を抽出
+2. 抽出した依存を Type B の変換フローに渡す
+3. プロジェクト自体を editable install:
+   ```toml
+   [pypi-dependencies]
+   project-name = { path = ".", editable = true }
+   ```
+
+### E2: setup.cfg のみ
+
+`[options]` の `install_requires` を読み、E1 と同じフローで処理。
+
+### E3: setup.py + requirements.txt 併存
+
+requirements.txt を優先し Type B として処理。setup.py は editable install にのみ使用。
+
+## Type D/F — Phase 3 で実装予定
 
 ---
 

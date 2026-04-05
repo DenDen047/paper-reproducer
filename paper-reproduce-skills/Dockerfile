@@ -21,6 +21,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g @anthropic-ai/claude-code
 
+# pueue: バッチ処理用タスクキュー（複数リポジトリの連続実行に使用）
+RUN curl -fsSL https://github.com/Nukesor/pueue/releases/latest/download/pueued-linux-x86_64 -o /usr/local/bin/pueued \
+    && curl -fsSL https://github.com/Nukesor/pueue/releases/latest/download/pueue-linux-x86_64 -o /usr/local/bin/pueue \
+    && chmod +x /usr/local/bin/pueued /usr/local/bin/pueue
+
 COPY . /paper-reproduce-skills
 
 # --dangerously-skip-permissions は root では使えないため非 root ユーザーで実行
@@ -30,10 +35,9 @@ RUN useradd -m -s /bin/bash claude \
 
 USER claude
 
-# docker run -v $(pwd):/workspace でリポジトリをマウントする前提
 WORKDIR /workspace
 
-# インタラクティブ起動。ユーザーが /reimplement を打って開始する。
+# インタラクティブ起動
 ENTRYPOINT ["claude", \
     "--dangerously-skip-permissions", \
     "--plugin-dir", "/paper-reproduce-skills"]

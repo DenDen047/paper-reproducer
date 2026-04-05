@@ -214,13 +214,15 @@ attempt = 0
 while not succeeded:
     attempt += 1
 
-    # 1. attempts.tsv を読んで過去の失敗を確認
-    # 2. 修正方針を決定（過去の失敗と同じことはしない）
-    # 3. pixi.toml を修正
-    # 4. git commit (スナップショット)
-    # 5. pixi install 実行
-    # 6. 結果判定
+    # 1. START_TIME=$(date +%s)  ← 省略禁止
+    # 2. attempts.tsv を読んで過去の失敗を確認
+    # 3. 修正方針を決定（過去の失敗と同じことはしない）
+    # 4. pixi.toml を修正
+    # 5. git commit (スナップショット)
+    # 6. pixi install 実行
+    # 7. END_TIME=$(date +%s) && DURATION 計算  ← 省略禁止
+    # 8. attempts.tsv にログ追記  ← 成功でも失敗でも省略禁止
+    # 9. 結果判定
     #    成功 → 環境検証 → Phase 3 へ
     #    失敗 → Tier 分類 → 修正 → git reset → continue
-    # 7. attempts.tsv にログ追記
 ```

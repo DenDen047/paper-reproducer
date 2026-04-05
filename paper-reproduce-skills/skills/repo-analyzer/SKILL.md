@@ -32,7 +32,11 @@ ls setup.py setup.cfg 2>/dev/null
 ls Dockerfile Dockerfile.* docker/Dockerfile 2>/dev/null
 ```
 
-### Step 2: 6-Type 判定
+### Step 2: defaults チャンネル検出
+
+environment.yml / conda.yaml が存在する場合、`channels:` セクションに `defaults` が含まれているかを確認する。検出した場合は analysis.json の `pixi_strategy` に記録し、Phase 2 で除去する。
+
+### Step 3: 6-Type 判定
 
 判定優先順位に従い、最も情報量の多い依存ファイルで Type を決定する。
 
@@ -63,7 +67,7 @@ ls Dockerfile Dockerfile.* docker/Dockerfile 2>/dev/null
 
 **Type F**: 依存ファイルが一切ない
 
-### Step 3: CUDA / PyTorch バージョン特定
+### Step 4: CUDA / PyTorch バージョン特定
 
 以下の情報源から CUDA / PyTorch のバージョンを推定:
 
@@ -75,7 +79,7 @@ ls Dockerfile Dockerfile.* docker/Dockerfile 2>/dev/null
 
 **CUDA バージョンが複数検出された場合**: 最も明示的な指定（environment.yml > Dockerfile > README）を優先。
 
-### Step 4: submodule 検出
+### Step 5: submodule 検出
 
 ```bash
 git submodule status
@@ -89,7 +93,7 @@ git submodule status
   - `CMakeLists.txt` が存在するか
   - `.cu` / `.cuh` ファイルが存在するか
 
-### Step 5: デモコマンド特定
+### Step 6: デモコマンド特定
 
 以下の順序で推論/デモコマンドを探す:
 
@@ -98,7 +102,7 @@ git submodule status
 3. `scripts/` ディレクトリ内のスクリプト
 4. Makefile の推論関連ターゲット
 
-### Step 6: モデルダウンロード方法の特定
+### Step 7: モデルダウンロード方法の特定
 
 README.md や スクリプトから以下を検出:
 - `wget` / `curl` による直接ダウンロード
@@ -106,7 +110,7 @@ README.md や スクリプトから以下を検出:
 - `huggingface_hub` / `from_pretrained`
 - カスタムダウンロードスクリプト
 
-### Step 7: 難易度評価
+### Step 8: 難易度評価
 
 以下の基準でリポジトリの再現難易度を評価し、`difficulty` フィールドに記録:
 
@@ -116,6 +120,6 @@ README.md や スクリプトから以下を検出:
 | medium | Type A2/A3/B2/B3 + submodule あり or CUDA 拡張ビルドが必要 |
 | hard | Type D/E/F, 複数の submodule + C++/CUDA 拡張, 依存情報が不完全 |
 
-### Step 8: analysis.json 出力
+### Step 9: analysis.json 出力
 
 全解析結果を `analysis.json` として CWD に書き出す。スキーマは `/reimplement` コマンドの定義を参照。

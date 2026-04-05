@@ -37,6 +37,28 @@ docker run --rm -it \
 > /reimplement
 ```
 
+### Batch processing
+
+```bash
+# 1. repos.txt を作成
+cat > repos.txt << 'EOF'
+https://github.com/user/paper1.git
+https://github.com/user/paper2.git
+https://github.com/user/paper3.git
+EOF
+
+# 2. Docker コンテナでバッチ実行
+docker run --gpus all \
+  -v $(pwd):/workspace \
+  -v pixi-cache:/home/claude/.cache/rattler \
+  -v $(pwd)/results:/results \
+  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  paper-reproduce \
+  --print --prompt "/batch-reimplement"
+```
+
+pueue でタスクキューを管理し、各リポジトリを順番に clone → `/reimplement` 実行。結果は `/results/{repo_name}/` に集約され、`summary.json` で全体の成功率を確認できる。
+
 ## How it works
 
 ```

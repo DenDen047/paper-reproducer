@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-plugin:
+    name: Validate Plugin Structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required files exist
+        run: |
+          required_files=(
+            "paper-reproduce-skills/.claude-plugin/plugin.json"
+            "paper-reproduce-skills/Dockerfile"
+            "paper-reproduce-skills/commands/reimplement.md"
+            "paper-reproduce-skills/commands/batch-reimplement.md"
+            "paper-reproduce-skills/templates/report.html"
+            "paper-reproduce-skills/skills/repo-analyzer/SKILL.md"
+            "paper-reproduce-skills/skills/pixi-env-builder/SKILL.md"
+            "paper-reproduce-skills/skills/dep-converter/SKILL.md"
+            "paper-reproduce-skills/skills/experiment-loop/SKILL.md"
+            "paper-reproduce-skills/skills/cuda-dependency-resolver/SKILL.md"
+          )
+          missing=0
+          for f in "${required_files[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "MISSING: $f"
+              missing=1
+            else
+              echo "OK: $f"
+            fi
+          done
+          if [ $missing -eq 1 ]; then
+            echo "::error::Required files are missing"
+            exit 1
+          fi
+
+      - name: Validate plugin.json
+        run: |
+          python3 -c "
+          import json, sys
+          with open('paper-reproduce-skills/.claude-plugin/plugin.json') as f:
+              data = json.load(f)
+          required = ['name', 'version', 'description', 'author', 'license']
+          missing = [k for k in required if k not in data]
+          if missing:
+              print(f'Missing keys: {missing}', file=sys.stderr)
+              sys.exit(1)
+          print(f'Plugin: {data[\"name\"]} v{data[\"version\"]}')
+          "
+
+      - name: Validate SKILL.md frontmatter
+        run: |
+          for skill in paper-reproduce-skills/skills/*/SKILL.md; do
+            echo "Checking $skill..."
+            # Verify YAML frontmatter exists (starts with ---)
+            head -1 "$skill" | grep -q "^---$" || {
+              echo "::error::$skill missing YAML frontmatter"
+              exit 1
+            }
+            echo "  OK"
+          done
+
+      - name: Validate command frontmatter
+        run: |
+          for cmd in paper-reproduce-skills/commands/*.md; do
+            echo "Checking $cmd..."
+            head -1 "$cmd" | grep -q "^---$" || {
+              echo "::error::$cmd missing YAML frontmatter"
+              exit 1
+            }
+            echo "  OK"
+          done
+
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t paper-reproduce-test paper-reproduce-skills/
+
+      - name: Verify image contents
+        run: |
+          docker run --rm --entrypoint="" paper-reproduce-test \
+            ls /paper-reproduce-skills/commands/reimplement.md
+          docker run --rm --entrypoint="" paper-reproduce-test \
+            ls /paper-reproduce-skills/templates/report.html
+          docker run --rm --entrypoint="" paper-reproduce-test \
+            which pueue pueued

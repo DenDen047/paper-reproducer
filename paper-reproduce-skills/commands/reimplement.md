@@ -199,6 +199,47 @@ while not inference_succeeded:
 
 **sample-embedder スキルを参照して実行。** Phase 3 の成功コマンドから入出力ファイルを特定し、`reports/samples/` 配下に正規化コピーして `samples` オブジェクトを生成する。Step 2 で `reports/report.json` に組み込む。
 
+### Step 1.7: Next Actions の生成
+
+再現作業後にユーザーが次に取るべきアクションを `next_actions` 配列として生成する。Step 2 で `reports/report.json` に組み込み、Step 3 で `report.html` にレンダリングし、Step 5 でターミナルに出力する（3 か所で同一ソース）。
+
+**生成規則（status 別）:**
+
+- **success** の場合（典型 2–4 件）:
+  - 検証済み quickstart コマンドを自分のデータで試す提案（`usage.quickstart.command` があれば `command` に転記）
+  - `usage.advanced` で未検証のものを動かしてみる提案
+  - `samples` に含まれる出力を別の入力で再生成する提案
+  - ベンチマーク・評価スクリプトがあれば実行提案
+
+- **partial** の場合（典型 3–5 件、high/medium 中心）:
+  - 未達の Phase を特定する指示（例: モデルが DL できていない、推論が部分成功）
+  - `errors` を解消する具体的な手順（ファイル名・コマンド付き）
+  - 軽量パラメータで先に動作確認する提案
+
+- **failed** の場合（典型 3–6 件、high 中心）:
+  - 失敗 Tier に応じた根本原因の説明と次のデバッグ手順
+  - 代替アプローチ（別チャンネル、別バージョン、Docker フォールバック等）
+  - `errors` の各項目に対応する具体的な修正候補
+
+**next_actions 配列のスキーマ:**
+
+```json
+[
+  {
+    "priority": "high|medium|low",
+    "action": "string",        // 何をすべきか（命令形、1 文）
+    "reason": "string",        // なぜそれが次か（1–2 文）
+    "command": "string|null"   // そのまま貼れば動くコマンド。該当なければ null
+  }
+]
+```
+
+**原則:**
+- 各項目は独立して実行可能にする（前後依存が強い場合は 1 項目にまとめる）
+- `action` は具体的に書く（×「環境を修正する」／○「`pixi add --pypi xformers==0.0.23` を追加してリビルド」）
+- 結果が何もなくても空配列 `[]` ではなく最低 1 件は出す（`success` の場合でも「自分のデータで試す」等を入れる）
+- 優先度は `high` が 0–2 件、過剰に high を付けない
+
 ### Step 2: reports/report.json 生成（機械可読）
 
 ```json
@@ -249,6 +290,14 @@ while not inference_succeeded:
     ],
     "note": "string|null"
   },
+  "next_actions": [
+    {
+      "priority": "high|medium|low",
+      "action": "string",
+      "reason": "string",
+      "command": "string|null"
+    }
+  ],
   "plugin_version": "1.0.0"
 }
 ```
@@ -256,6 +305,8 @@ while not inference_succeeded:
 **usage フィールド:** Step 1.5 で生成した usage オブジェクトをそのまま埋め込む。抽出できなかった階層は `null` を入れる（`advanced` のみ空配列 `[]`）。スキーマ詳細は usage-documenter スキルを参照。
 
 **samples フィールド:** Step 1.6 で生成した samples オブジェクトをそのまま埋め込む。パスは `reports/` からの相対（例: `samples/input/left.png`）。カテゴリ判定・変換ルールは sample-embedder スキルを参照。
+
+**next_actions フィールド:** Step 1.7 で生成した next_actions 配列をそのまま埋め込む。`report.json` を単一ソース (SSOT) とし、`report.html` とターミナル出力 (Step 5) はここから読み出してレンダリングする。
 
 **status の判定基準:**
 - `success`: pixi install 成功 + 推論実行成功（出力ファイルが生成された）
@@ -285,6 +336,7 @@ while not inference_succeeded:
 | `{{ADVANCED_BLOCK}}` | `usage.advanced` を HTML にレンダリング（後述） |
 | `{{DEVELOPER_BLOCK}}` | `usage.developer` を HTML にレンダリング（後述） |
 | `{{SAMPLES_BLOCK}}` | `samples.items` を HTML にレンダリング（後述） |
+| `{{NEXT_ACTIONS_BLOCK}}` | `next_actions` を HTML にレンダリング（後述） |
 | `{{PIXI_TOML_CONTENT}}` | pixi.toml の内容（HTML エスケープ済み） |
 | `{{ERRORS_LIST}}` | エラーの `<li>` リスト（`failed`/`partial` 時のみ） |
 | `{{PLUGIN_VERSION}}` | plugin.json の `version` |
@@ -403,9 +455,59 @@ JavaScript 不要、HTML5 `<video>` タグのみで再生。
 
 **HTML エスケープ必須**: `label`, `note` 中の `<`, `>`, `&`, `"`, `'` をエスケープ。`src` のパスは HTML 属性値としてエスケープ（`"` は `&quot;`）。
 
+#### next_actions ブロックのレンダリング規則
+
+**`{{NEXT_ACTIONS_BLOCK}}`** — `next_actions` の各要素を順に:
+
+```html
+<div class="next-action-item">
+  <div class="next-action-header">
+    <span class="priority-badge priority-{priority}">{priority}</span>
+    <strong>{action}</strong>
+  </div>
+  <p class="usage-note">{reason}</p>
+  <!-- command が非 null の場合のみ: -->
+  <pre><code>{command}</code></pre>
+</div>
+```
+
+空配列の場合:
+
+```html
+<p class="usage-empty">特筆すべき次のアクションはありません。</p>
+```
+
+**HTML エスケープ必須**: `action`, `reason`, `command` 中の `<`, `>`, `&`, `"`, `'` をエスケープ。
+
 ### Step 4: 成果物の確認
 
 Phase 0 の「成果物レイアウト」のとおりに全ファイルが揃っていることを確認する。
+
+### Step 5: Next Actions のターミナル出力
+
+`/reimplement` の最後に、`reports/report.json` の `next_actions` 配列をユーザー向けメッセージとしてターミナルに整形出力する。ユーザーはその場で次のアクションを選んで Claude Code に依頼できる。
+
+**出力フォーマット:**
+
+```
+## Next Actions
+
+1. [HIGH] {action}
+   理由: {reason}
+   $ {command}
+
+2. [MEDIUM] {action}
+   理由: {reason}
+
+3. [LOW] {action}
+   ...
+```
+
+**原則:**
+- ソースは `reports/report.json` の `next_actions`（Step 1.7 で生成、Step 2 で埋め込み済み）を読み出すこと。ここで新規に生成し直さない（3 か所でズレるのを防ぐ）。
+- 配列が空なら出力しない（代わりに "再現は完了しました。特筆すべき次のアクションはありません。" を出す）。
+- `command` が null の項目では `$ {command}` 行を省略する。
+- Phase 4 が完了し Step 4 の成果物確認も終わった**最後**に出力する。途中の Phase で出力しない。
 
 ---
 

@@ -38,6 +38,14 @@
   .usage-note { color: var(--muted); font-size: 0.8rem; }
   .usage-verified { color: var(--success); font-weight: 600; }
   .usage-empty { color: var(--muted); font-style: italic; }
+  .next-actions .next-action-item { padding: 0.75rem 0; border-bottom: 1px dashed var(--border); }
+  .next-actions .next-action-item:last-child { border-bottom: none; padding-bottom: 0; }
+  .next-actions .next-action-item:first-child { padding-top: 0; }
+  .next-actions .next-action-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; }
+  .priority-badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #fff; }
+  .priority-high { background: var(--failed); }
+  .priority-medium { background: var(--partial); }
+  .priority-low { background: var(--muted); }
   .samples .sample-item { margin-bottom: 1.5rem; }
   .samples .sample-item:last-child { margin-bottom: 0; }
   .samples h4 { font-size: 0.9rem; margin: 0 0 0.5rem; color: var(--muted); font-weight: 600; }
@@ -85,6 +93,12 @@
       <span class="value">{{DURATION_TOTAL}}</span>
     </div>
   </div>
+</div>
+
+<!-- ===== Next Actions ===== -->
+<h2>Next Actions</h2>
+<div class="card next-actions">
+{{NEXT_ACTIONS_BLOCK}}
 </div>
 
 <!-- ===== Usage Guide ===== -->

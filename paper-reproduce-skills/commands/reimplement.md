@@ -26,6 +26,9 @@ allowed-tools: Bash Read Write Edit Glob Grep Agent
     └── samples/         # Phase 4 入出力サンプル（report.html が参照）
         ├── input/
         └── output/
+
+# リポジトリ外（Phase 4 Step 5、status=success のみ）
+../{repo_name}-{short_sha}.tar.gz  # git archive による状態スナップショット
 ```
 
 ### 初期化手順
@@ -298,6 +301,7 @@ while not inference_succeeded:
       "command": "string|null"
     }
   ],
+  "archive_path": "string|null",
   "plugin_version": "1.0.0"
 }
 ```
@@ -306,7 +310,9 @@ while not inference_succeeded:
 
 **samples フィールド:** Step 1.6 で生成した samples オブジェクトをそのまま埋め込む。パスは `reports/` からの相対（例: `samples/input/left.png`）。カテゴリ判定・変換ルールは sample-embedder スキルを参照。
 
-**next_actions フィールド:** Step 1.7 で生成した next_actions 配列をそのまま埋め込む。`report.json` を単一ソース (SSOT) とし、`report.html` とターミナル出力 (Step 5) はここから読み出してレンダリングする。
+**next_actions フィールド:** Step 1.7 で生成した next_actions 配列をそのまま埋め込む。`report.json` を単一ソース (SSOT) とし、`report.html` とターミナル出力 (Step 6) はここから読み出してレンダリングする。
+
+**archive_path フィールド:** Step 5 で生成されるアーカイブファイルのパス（リポジトリ親ディレクトリからの絶対パス）。status != "success" の場合や archive 作成がスキップされた場合は `null`。Step 2 時点では `null` を仮置きし、Step 5 でアーカイブ作成後に `report.json` を更新する（成功時のみ）。
 
 **status の判定基準:**
 - `success`: pixi install 成功 + 推論実行成功（出力ファイルが生成された）
@@ -483,13 +489,79 @@ JavaScript 不要、HTML5 `<video>` タグのみで再生。
 
 Phase 0 の「成果物レイアウト」のとおりに全ファイルが揃っていることを確認する。
 
-### Step 5: Next Actions のターミナル出力
+### Step 5: 最終コミットとアーカイブ
 
-`/reimplement` の最後に、`reports/report.json` の `next_actions` 配列をユーザー向けメッセージとしてターミナルに整形出力する。ユーザーはその場で次のアクションを選んで Claude Code に依頼できる。
+**ローカルアーカイブとしてリポジトリ外に保存**し、後から自由に展開・検証できるようにする。
+
+#### Step 5.1: 未コミット変更の最終コミット
+
+Phase 4 で生成したレポート類 (`reports/report.json`, `reports/report.html`, `reports/samples/...`) はまだワーキングツリーに残っているはず。これらを 1 コミットにまとめる:
+
+```bash
+git status --porcelain
+# 何か出たら:
+git add reports/ pixi.toml pixi.lock
+git commit -m "chore: finalize reproduction reports"
+```
+
+`reports/attempts.tsv` は `.gitignore` 対象なので対象外。既にクリーンなら何もしない（空コミットは作らない）。
+
+#### Step 5.2: アーカイブ作成（`status == "success"` の場合のみ）
+
+`reports/report.json` の `status` フィールドを確認し、`"success"` の場合のみ以下を実行する。`partial` / `failed` の場合は Step 5.2 をスキップし、`archive_path` を `null` のままにする。
+
+```bash
+REPO_NAME=$(basename "$PWD")
+SHORT_SHA=$(git rev-parse --short HEAD)
+ARCHIVE_PATH="$(cd .. && pwd)/${REPO_NAME}-${SHORT_SHA}.tar.gz"
+
+git archive \
+  --format=tar.gz \
+  --prefix="${REPO_NAME}-${SHORT_SHA}/" \
+  HEAD \
+  -o "${ARCHIVE_PATH}"
+
+ls -lh "${ARCHIVE_PATH}"
+```
+
+**挙動の注意:**
+- `git archive HEAD` は**追跡ファイルのみ**をアーカイブする。`.gitignore` 対象のファイル（`reports/attempts.tsv`, `.pixi/`, ダウンロード済みモデル重みなど）は含まれない。
+- モデル重みはアーカイブ展開後に Phase 3 Step 1 の手順で再ダウンロードする前提。これは意図的（アーカイブサイズを小さく保つため）。
+- 親ディレクトリに書き込めない場合は `/tmp/${REPO_NAME}-${SHORT_SHA}.tar.gz` にフォールバックする。
+- アーカイブは `{REPO_NAME}-{SHORT_SHA}/` というプレフィックスを持ち、展開すると同名ディレクトリが作られる。
+
+#### Step 5.3: report.json の archive_path 更新
+
+アーカイブ作成に成功したら、`reports/report.json` の `archive_path` フィールドを実際のパスに書き換えて新規コミットする:
+
+```bash
+# report.json を編集して archive_path を設定
+git add reports/report.json
+git commit -m "chore: record archive path"
+```
+
+**注意事項:**
+- `--amend` は使わない。Step 5.1 で作った最終コミットを破壊せず新規コミットで追記する。
+- 結果として**アーカイブファイル自体は Step 5.1 時点の HEAD を指し、その中の `report.json` は `archive_path: null`** となる。
+
+#### Step 5.4: アーカイブをスキップした場合
+
+`status != "success"` の場合、アーカイブは作らず、代わりにターミナル (Step 6) で以下を明示する:
+
+> ⚠️ アーカイブは status=success 時のみ作成されます。現在の status は `{status}` です。
+
+### Step 6: Next Actions のターミナル出力
+
+`/reimplement` の最後に、`reports/report.json` の `next_actions` 配列と `archive_path` をユーザー向けメッセージとしてターミナルに整形出力する。ユーザーはその場で次のアクションを選んで Claude Code に依頼できる。
 
 **出力フォーマット:**
 
 ```
+## Reproduction Complete
+
+Status: {status}
+Archive: {archive_path or "(not created; status != success)"}
+
 ## Next Actions
 
 1. [HIGH] {action}
@@ -504,10 +576,11 @@ Phase 0 の「成果物レイアウト」のとおりに全ファイルが揃っ
 ```
 
 **原則:**
-- ソースは `reports/report.json` の `next_actions`（Step 1.7 で生成、Step 2 で埋め込み済み）を読み出すこと。ここで新規に生成し直さない（3 か所でズレるのを防ぐ）。
-- 配列が空なら出力しない（代わりに "再現は完了しました。特筆すべき次のアクションはありません。" を出す）。
+- ソースは `reports/report.json` の `next_actions` / `archive_path` / `status` を読み出すこと。ここで新規に生成・計算し直さない。
+- `next_actions` が空なら Next Actions ブロックの代わりに "再現は完了しました。特筆すべき次のアクションはありません。" を出す。
 - `command` が null の項目では `$ {command}` 行を省略する。
-- Phase 4 が完了し Step 4 の成果物確認も終わった**最後**に出力する。途中の Phase で出力しない。
+- `archive_path` が null の場合、代わりに理由（`status != success` など）を表示する。
+- Phase 4 が完了し Step 5 のアーカイブも終わった**最後**に出力する。途中の Phase で出力しない。
 
 ---
 

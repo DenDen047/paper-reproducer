@@ -237,10 +237,10 @@ while not inference_succeeded:
     } | null
   },
   "samples": {
-    "category": "rgb_to_rgb|mono_to_depth|stereo_to_depth|mv_to_gaussians|images_to_pointcloud|unknown",
+    "category": "rgb_to_rgb|mono_to_depth|stereo_to_depth|mv_to_gaussians|images_to_pointcloud|image_to_mask|image_to_bbox|image_to_keypoint|frames_to_flow|image_to_mesh|mv_to_nerf|video_output|unknown",
     "items": [
       {
-        "type": "image_pair|image_triple|gaussian_splat|point_cloud",
+        "type": "image_pair|image_triple|gaussian_splat|point_cloud|mesh|video",
         "label": "string",
         "input_paths": ["string"],
         "output_paths": ["string"],
@@ -374,6 +374,27 @@ null の場合:
 </div>
 ```
 ビューワ本体は template 末尾の `<script type="module">` で動的初期化される（Three.js `PLYLoader` + `THREE.Points`）。
+
+**`type == "mesh"`:**
+```html
+<div class="sample-item">
+  <h4>{label}</h4>
+  <div class="viewer-3d viewer-mesh" data-src="{output_paths[0]}"></div>
+  <p class="usage-note">Format: {metadata.format}</p>
+</div>
+```
+ビューワ本体は template 末尾の `<script type="module">` で動的初期化される（Three.js `GLTFLoader` or `OBJLoader`）。対応拡張子: `.glb` / `.gltf` / `.obj`。
+
+**`type == "video"`:**
+```html
+<div class="sample-item">
+  <h4>{label}</h4>
+  <video class="sample-video" src="{output_paths[0]}" autoplay muted loop playsinline preload="metadata">
+    お使いのブラウザは HTML5 video に対応していません。
+  </video>
+</div>
+```
+JavaScript 不要、HTML5 `<video>` タグのみで再生。
 
 `items` が空配列の場合:
 ```html

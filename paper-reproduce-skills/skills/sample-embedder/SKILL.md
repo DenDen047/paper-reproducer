@@ -11,28 +11,38 @@ allowed-tools: Bash Read Write Grep Glob
 
 ## 対応カテゴリ
 
-| category | 判定ヒント | 代表論文 | 出力形式 |
-|---|---|---|---|
-| `rgb_to_rgb` | super-resolution / inpainting / style transfer / denoising / restoration / image editing / text-to-image / image-to-image | Real-ESRGAN, LaMa, ControlNet, SDXL | PNG/JPG |
-| `mono_to_depth` | monocular depth / depth estimation (単眼) | Depth Anything v2, Marigold, ZoeDepth | PNG (colormapped) |
-| `stereo_to_depth` | stereo / disparity / stereo depth | Fast-FoundationStereo, RAFT-Stereo | PNG (colormapped) |
-| `mv_to_gaussians` | 3D Gaussian Splatting / 3DGS / gaussian splat | Grendel-GS, 3DGS, Mip-Splatting | `.ply` / `.splat` / `.ksplat` |
-| `images_to_pointcloud` | point cloud reconstruction / DUSt3R / VGGT / MVS / sparse point cloud | DUSt3R, VGGT, MVSNet, COLMAP, m3-spatial | `.ply` (xyz[rgb]) |
+| category | 判定ヒント | 代表論文 | 出力形式 | item type |
+|---|---|---|---|---|
+| `rgb_to_rgb` | super-resolution / inpainting / style transfer / denoising / restoration / image editing / text-to-image / image-to-image | Real-ESRGAN, LaMa, ControlNet, SDXL | PNG/JPG | `image_pair` |
+| `mono_to_depth` | monocular depth / depth estimation (単眼) | Depth Anything v2, Marigold, ZoeDepth | PNG (colormapped) | `image_pair` |
+| `stereo_to_depth` | stereo / disparity / stereo depth | Fast-FoundationStereo, RAFT-Stereo | PNG (colormapped) | `image_triple` |
+| `mv_to_gaussians` | 3D Gaussian Splatting / 3DGS | Grendel-GS, 3DGS, Mip-Splatting | `.ply` / `.splat` / `.ksplat` | `gaussian_splat` |
+| `images_to_pointcloud` | point cloud reconstruction / DUSt3R / VGGT / MVS / SfM | DUSt3R, VGGT, MVSNet, COLMAP | `.ply` (xyz[rgb]) | `point_cloud` |
+| `image_to_mask` | segmentation / SAM / mask / semantic seg | SAM, SAM 2, Mask2Former, OneFormer | PNG (visualized overlay) | `image_pair` |
+| `image_to_bbox` | object detection / YOLO / DETR / bounding box | YOLOv8, DETR, Grounding DINO | PNG (with boxes drawn) | `image_pair` |
+| `image_to_keypoint` | pose / keypoint / skeleton / OpenPose | OpenPose, ViTPose, MediaPipe | PNG (with skeleton) | `image_pair` |
+| `frames_to_flow` | optical flow / RAFT | RAFT, SEA-RAFT, GMFlow | PNG (color-wheel flow) | `image_triple` |
+| `image_to_mesh` | image-to-3D / mesh / textured mesh | InstantMesh, TripoSR, LGM, DreamFusion | `.glb` / `.gltf` / `.obj` | `mesh` |
+| `mv_to_nerf` | NeRF / neural radiance field / SDF reconstruction | Instant-NGP, Mip-NeRF 360, NeuS | `.mp4` (pre-rendered orbit) | `video` |
+| `video_output` | video generation / T2V / I2V / video depth / video segmentation / action recognition | SVD, CogVideoX, Open-Sora, SlowFast | `.mp4` / `.webm` | `video` |
 
-**それ以外**（NeRF, mesh, video, segmentation, detection, pose, optical flow, 等）は `category="unknown"` として空の `items` を返す。拡張は別フェーズで行う。
+**対象外** — 以下は `category="unknown"` で返す:
+- NeRF/SDF の raw weights (`.pth`, `.ckpt`) — pre-rendered orbit video が無ければ可視化不能
+- 純 JSON / bbox 座標のみ（visualized overlay が生成されていない場合）
+- Metrics only（数値のログのみ）
 
 ## 出力スキーマ
 
 ```json
 {
   "samples": {
-    "category": "rgb_to_rgb|mono_to_depth|stereo_to_depth|mv_to_gaussians|images_to_pointcloud|unknown",
+    "category": "rgb_to_rgb|mono_to_depth|stereo_to_depth|mv_to_gaussians|images_to_pointcloud|image_to_mask|image_to_bbox|image_to_keypoint|frames_to_flow|image_to_mesh|mv_to_nerf|video_output|unknown",
     "items": [
       {
-        "type": "image_pair|image_triple|gaussian_splat|point_cloud",
+        "type": "image_pair|image_triple|gaussian_splat|point_cloud|mesh|video",
         "label": "string",
         "input_paths": ["samples/input/xxx.png"],
-        "output_paths": ["samples/output/yyy.ply"],
+        "output_paths": ["samples/output/yyy.ext"],
         "metadata": {}
       }
     ],
@@ -55,28 +65,53 @@ awk -F'\t' '$3=="inference" && $5=="success" {print $4}' reports/attempts.tsv | 
 
 **b.** `reports/analysis.json` と README.md からキーワードベースで分類:
 ```bash
-# 3D Gaussian Splatting
+# 3D 系
 grep -iE "gaussian splat|3dgs|gaussian-splatting" reports/analysis.json README.md 2>/dev/null
-# Point cloud reconstruction
 grep -iE "point cloud|pointcloud|dust3r|vggt|mvs|colmap|sfm" reports/analysis.json README.md 2>/dev/null
+grep -iE "nerf|neural radiance|radiance field|instant.?ngp|neus|sdf" reports/analysis.json README.md 2>/dev/null
+grep -iE "image.to.3d|text.to.3d|mesh|\\.glb|\\.gltf|triposr|instantmesh" reports/analysis.json README.md 2>/dev/null
 # 2D カテゴリ
 grep -iE "stereo|disparity" reports/analysis.json README.md 2>/dev/null
 grep -iE "monocular depth|depth estimation|mono.?depth" reports/analysis.json README.md 2>/dev/null
 grep -iE "super.?res|super resolution|inpaint|style transfer|denois|restor|image.editing|text.to.image|image.to.image" reports/analysis.json README.md 2>/dev/null
+# 認識系
+grep -iE "segment|\\bsam\\b|mask2former|oneformer|semantic seg|instance seg|panoptic" reports/analysis.json README.md 2>/dev/null
+grep -iE "object detect|yolo|\\bdetr\\b|bounding box|grounding.?dino" reports/analysis.json README.md 2>/dev/null
+grep -iE "pose estimation|keypoint|skeleton|openpose|\\bvitpose\\b|\\bhrnet\\b" reports/analysis.json README.md 2>/dev/null
+grep -iE "optical flow|\\braft\\b|flowformer|gmflow" reports/analysis.json README.md 2>/dev/null
+# 動画系
+grep -iE "video generation|text.to.video|image.to.video|t2v|\\bi2v\\b|video diffusion|video depth|video segment|action recognition|video classif" reports/analysis.json README.md 2>/dev/null
 ```
 
 **c.** 出力ファイル拡張子からも推定:
-- `.ply`, `.splat`, `.ksplat` が Phase 3 で生成されていれば 3D 系。PLY の場合は header を見て 3DGS と点群を区別する:
-  ```bash
-  # 3DGS 判定: f_dc_0 / scale_0 / rot_0 / opacity プロパティがあれば 3DGS
-  head -c 4096 {file}.ply | grep -qE "property float (f_dc_0|scale_0|rot_0|opacity)" && echo "gsplat" || echo "pointcloud"
-  ```
-  `.splat` / `.ksplat` は常に 3DGS 形式。
 
-判定優先順位（拡張子 > キーワード）:
-1. `.splat` / `.ksplat` または 3DGS 形式の `.ply` → `mv_to_gaussians`
-2. 点群形式の `.ply` → `images_to_pointcloud`
-3. `stereo_to_depth` → `mono_to_depth` → `rgb_to_rgb` → `unknown`
+| 拡張子 | 判定 |
+|---|---|
+| `.splat` / `.ksplat` | `mv_to_gaussians` 確定 |
+| `.ply` (header に `f_dc_0` / `scale_0` / `rot_0` / `opacity` あり) | `mv_to_gaussians` |
+| `.ply` (上記プロパティ無し) | `images_to_pointcloud` |
+| `.glb` / `.gltf` / `.obj` | `image_to_mesh` |
+| `.mp4` / `.webm` / `.avi` + README に NeRF 系キーワード | `mv_to_nerf` |
+| `.mp4` / `.webm` / `.avi` + 上記以外 | `video_output` |
+| `.png` / `.jpg` + mask/seg キーワード | `image_to_mask` |
+| `.png` / `.jpg` + detect/yolo/bbox キーワード | `image_to_bbox` |
+| `.png` / `.jpg` + pose/keypoint キーワード | `image_to_keypoint` |
+| `.png` / `.jpg` / `.flo` + optical flow キーワード | `frames_to_flow` |
+| 上記以外の画像 | `stereo_to_depth` → `mono_to_depth` → `rgb_to_rgb` → `unknown` |
+
+PLY header 判定:
+```bash
+# 3DGS 判定: f_dc_0 / scale_0 / rot_0 / opacity プロパティがあれば 3DGS
+head -c 4096 {file}.ply | grep -qE "property float (f_dc_0|scale_0|rot_0|opacity)" && echo "gsplat" || echo "pointcloud"
+```
+
+**判定優先順位**（拡張子 > キーワード）:
+1. `.splat` / `.ksplat` or 3DGS 形式 `.ply` → `mv_to_gaussians`
+2. 点群形式 `.ply` → `images_to_pointcloud`
+3. `.glb` / `.gltf` / `.obj` → `image_to_mesh`
+4. `.mp4` / `.webm` / `.avi` → キーワードで `mv_to_nerf` or `video_output`
+5. 画像 + 認識系キーワード → `image_to_mask` / `image_to_bbox` / `image_to_keypoint` / `frames_to_flow`
+6. `stereo_to_depth` → `mono_to_depth` → `rgb_to_rgb` → `unknown`
 
 ### Step 2: 入出力ファイルの特定
 
@@ -102,8 +137,10 @@ echo "$CMD" | grep -oE -- "--\w+[ =][^ ]+"
 find . -path ./reports -prune -o -path ./.pixi -prune -o \
   -type f -newer reports/attempts.tsv \
   \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" \
-     -o -name "*.npy" -o -name "*.pfm" -o -name "*.exr" \
-     -o -name "*.ply" -o -name "*.splat" -o -name "*.ksplat" \) \
+     -o -name "*.npy" -o -name "*.pfm" -o -name "*.exr" -o -name "*.flo" \
+     -o -name "*.ply" -o -name "*.splat" -o -name "*.ksplat" \
+     -o -name "*.glb" -o -name "*.gltf" -o -name "*.obj" \
+     -o -name "*.mp4" -o -name "*.webm" -o -name "*.avi" \) \
   -print 2>/dev/null | head -20
 ```
 
@@ -134,12 +171,31 @@ mkdir -p reports/samples/input reports/samples/output
 | `.png`（16bit grayscale depth） | matplotlib で colormap → PNG 8bit | PNG |
 | `.npy`（float32 / uint16 depth） | matplotlib で colormap → PNG | PNG |
 | `.pfm`（stereo disparity 定番） | numpy で読み込み → colormap → PNG | PNG |
+| `.flo`（optical flow 2ch） | Middlebury flow reader → color wheel PNG | PNG |
 | `.exr` | OpenCV があれば読み込み → 正規化 → PNG | PNG |
 | `.ply`（3DGS, 点群どちらも） | そのままコピー | .ply |
 | `.splat` / `.ksplat`（3DGS 圧縮形式） | そのままコピー | .splat/.ksplat |
+| `.glb` / `.gltf` / `.obj`（mesh） | そのままコピー | 同形式 |
+| `.mp4` / `.webm` / `.avi`（video） | そのままコピー（H.264/VP9 前提） | 同形式 |
 | その他 | スキップ、`note` に記録 | — |
 
-3D ファイルは変換しない。 Three.js の `PLYLoader` と `@mkkellogg/gaussian-splats-3d` がブラウザ側で直接読む。`.ply` のサイズが大きい場合でも圧縮は行わない。
+**3D / video ファイルは変換しない。** ブラウザ側で Three.js (`PLYLoader` / `GLTFLoader` / `OBJLoader`) や `<video>` タグが直接読む。`.ply` / `.glb` / `.mp4` のサイズが大きい場合でも圧縮は行わない。
+
+**`.flo` の読み取り（Middlebury 形式）:**
+```python
+def read_flo(path):
+    import numpy as np
+    with open(path, "rb") as f:
+        magic = np.fromfile(f, np.float32, 1)
+        if magic != 202021.25:
+            raise ValueError("invalid .flo file")
+        w = int(np.fromfile(f, np.int32, 1))
+        h = int(np.fromfile(f, np.int32, 1))
+        data = np.fromfile(f, np.float32, 2 * w * h).reshape(h, w, 2)
+    return data  # (H, W, 2)
+```
+
+`flow → color wheel` 変換は `cv2.optflow` or Python 実装の HSV → RGB で実施。
 
 **d.** Colormapping 実装（matplotlib 優先、PIL フォールバック）:
 
@@ -268,6 +324,84 @@ head -c 4096 {file}.ply | grep -oE "element vertex [0-9]+" | awk '{print $3}'
 head -c 4096 {file}.ply | grep -q "property uchar red" && echo true || echo false
 ```
 
+**category = `image_to_mask` / `image_to_bbox` / `image_to_keypoint`:**
+
+いずれも「入力 RGB + 可視化済み出力 RGB」の 2 枚ペアなので `image_pair` を使う:
+```json
+{
+  "type": "image_pair",
+  "label": "入力 → マスク可視化" ,
+  "input_paths": ["samples/input/image.png"],
+  "output_paths": ["samples/output/mask_overlay.png"],
+  "metadata": {"task": "segmentation"}
+}
+```
+
+ラベル例:
+- `image_to_mask`: "入力 → セグメンテーションマスク"
+- `image_to_bbox`: "入力 → 検出結果 (bounding boxes)"
+- `image_to_keypoint`: "入力 → 姿勢推定 (keypoints)"
+
+**重要**: 出力が pre-visualized な RGB 画像の場合にのみこれらのカテゴリを採用する。出力が純粋なマスク PNG / bbox JSON / keypoint JSON のみで可視化されていない場合は `category="unknown"` にし、`note` に「出力は座標/raw mask のみで pre-rendered の可視化なし」を記載する。
+
+**category = `frames_to_flow`:**
+```json
+{
+  "type": "image_triple",
+  "label": "Frame 1 / Frame 2 / Optical Flow",
+  "input_paths": ["samples/input/frame1.png", "samples/input/frame2.png"],
+  "output_paths": ["samples/output/flow.png"],
+  "metadata": {"visualization": "color_wheel"}
+}
+```
+
+**category = `image_to_mesh`:**
+```json
+{
+  "type": "mesh",
+  "label": "再構成されたメッシュ",
+  "input_paths": ["samples/input/image.png"],
+  "output_paths": ["samples/output/mesh.glb"],
+  "metadata": {
+    "format": "glb",
+    "has_texture": true
+  }
+}
+```
+
+`format` は `glb` / `gltf` / `obj` のいずれか（実ファイルの拡張子と一致）。
+
+**category = `mv_to_nerf`:**
+```json
+{
+  "type": "video",
+  "label": "再構成結果 (orbit rendering)",
+  "input_paths": [],
+  "output_paths": ["samples/output/orbit.mp4"],
+  "metadata": {
+    "format": "mp4",
+    "note": "pre-rendered orbit video"
+  }
+}
+```
+
+NeRF 本体の weights はブラウザでは再生できないため、訓練後の orbit レンダリングを pre-computed video として表示する。Phase 3 で orbit rendering が実行されていなければ `category="unknown"` にフォールバック。
+
+**category = `video_output`:**
+```json
+{
+  "type": "video",
+  "label": "生成動画",
+  "input_paths": [],
+  "output_paths": ["samples/output/result.mp4"],
+  "metadata": {
+    "format": "mp4"
+  }
+}
+```
+
+T2V / I2V / video depth / video segmentation / action recognition いずれも同じ `video` item type で表現する。必要に応じて `label` で区別する。
+
 ## ハルシネーション対策（CRITICAL）
 
 - **存在確認**: `input_paths` / `output_paths` は `ls reports/{path}` で実在確認してから items に追加
@@ -285,19 +419,12 @@ head -c 4096 {file}.ply | grep -q "property uchar red" && echo true || echo fals
 
 ## 現バージョンの対象外（`unknown` を返すケース）
 
-以下は別フェーズで対応する。現バージョンではすべて `category="unknown"`, `items=[]`, `note="{具体的な理由}"`:
+以下は `category="unknown"`, `items=[]`, `note="{具体的な理由}"` で返す:
 
-- NeRF / SDF (`.pth` の NeRF weights など、直接ブラウザ表示できないもの)
-- Mesh (`.obj`, `.glb`, `.gltf`)
-- Point cloud の非 PLY 形式 (`.pcd`, `.xyz`)
-- Video (`.mp4`, `.webm`, `.avi`)
-- Segmentation mask（単独でカラーマップされていない連結成分）
-- Optical flow（`.flo`, 2ch 配列）
-- Bounding box / keypoint（JSON 出力）
+- NeRF / SDF の raw weights（`.pth` / `.ckpt`）で orbit rendering が無い場合
+- Point cloud の非 PLY 形式（`.pcd` / `.xyz`）
+- 純粋な mask PNG / bbox JSON / keypoint JSON のみで pre-visualized 出力が無い場合
 - Metrics only（ログ中の数値のみ、ファイル出力なし）
-
-拡張時はこのセクションを各カテゴリに置き換え、`items.type` を増やす。
-
 ## 出力の保存
 
 生成した `samples` オブジェクトは `/reimplement` Phase 4 Step 1.6 の呼び出し元に返す。呼び出し元は Step 2 で `reports/report.json` に組み込み、Step 3 で HTML にレンダリングする。

@@ -237,10 +237,10 @@ while not inference_succeeded:
     } | null
   },
   "samples": {
-    "category": "rgb_to_rgb|mono_to_depth|stereo_to_depth|unknown",
+    "category": "rgb_to_rgb|mono_to_depth|stereo_to_depth|mv_to_gaussians|images_to_pointcloud|unknown",
     "items": [
       {
-        "type": "image_pair|image_triple",
+        "type": "image_pair|image_triple|gaussian_splat|point_cloud",
         "label": "string",
         "input_paths": ["string"],
         "output_paths": ["string"],
@@ -354,6 +354,26 @@ null の場合:
   </div>
 </div>
 ```
+
+**`type == "gaussian_splat"`:**
+```html
+<div class="sample-item">
+  <h4>{label}</h4>
+  <div class="viewer-3d viewer-gsplat" data-src="{output_paths[0]}"></div>
+  <p class="usage-note">3D Gaussians: {metadata.gaussian_count}</p>
+</div>
+```
+ビューワ本体は template 末尾の `<script type="module">` で動的初期化される（Three.js + `@mkkellogg/gaussian-splats-3d` を CDN から importmap 経由で読み込む）。
+
+**`type == "point_cloud"`:**
+```html
+<div class="sample-item">
+  <h4>{label}</h4>
+  <div class="viewer-3d viewer-pointcloud" data-src="{output_paths[0]}"></div>
+  <p class="usage-note">Points: {metadata.point_count}</p>
+</div>
+```
+ビューワ本体は template 末尾の `<script type="module">` で動的初期化される（Three.js `PLYLoader` + `THREE.Points`）。
 
 `items` が空配列の場合:
 ```html

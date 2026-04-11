@@ -11,26 +11,28 @@ allowed-tools: Bash Read Write Grep Glob
 
 ## 対応カテゴリ
 
-| category | 判定ヒント | 代表論文 |
-|---|---|---|
-| `rgb_to_rgb` | super-resolution / inpainting / style transfer / denoising / restoration / image editing / text-to-image / image-to-image | Real-ESRGAN, LaMa, ControlNet, SDXL |
-| `mono_to_depth` | monocular depth / depth estimation (単眼) | Depth Anything v2, Marigold, ZoeDepth |
-| `stereo_to_depth` | stereo / disparity / stereo depth | Fast-FoundationStereo, RAFT-Stereo |
+| category | 判定ヒント | 代表論文 | 出力形式 |
+|---|---|---|---|
+| `rgb_to_rgb` | super-resolution / inpainting / style transfer / denoising / restoration / image editing / text-to-image / image-to-image | Real-ESRGAN, LaMa, ControlNet, SDXL | PNG/JPG |
+| `mono_to_depth` | monocular depth / depth estimation (単眼) | Depth Anything v2, Marigold, ZoeDepth | PNG (colormapped) |
+| `stereo_to_depth` | stereo / disparity / stereo depth | Fast-FoundationStereo, RAFT-Stereo | PNG (colormapped) |
+| `mv_to_gaussians` | 3D Gaussian Splatting / 3DGS / gaussian splat | Grendel-GS, 3DGS, Mip-Splatting | `.ply` / `.splat` / `.ksplat` |
+| `images_to_pointcloud` | point cloud reconstruction / DUSt3R / VGGT / MVS / sparse point cloud | DUSt3R, VGGT, MVSNet, COLMAP, m3-spatial | `.ply` (xyz[rgb]) |
 
-**それ以外**（3D Gaussian Splatting, NeRF, point cloud, mesh, video, segmentation, detection, pose, optical flow, 等）は `category="unknown"` として空の `items` を返す。拡張は別フェーズで行う。
+**それ以外**（NeRF, mesh, video, segmentation, detection, pose, optical flow, 等）は `category="unknown"` として空の `items` を返す。拡張は別フェーズで行う。
 
 ## 出力スキーマ
 
 ```json
 {
   "samples": {
-    "category": "rgb_to_rgb|mono_to_depth|stereo_to_depth|unknown",
+    "category": "rgb_to_rgb|mono_to_depth|stereo_to_depth|mv_to_gaussians|images_to_pointcloud|unknown",
     "items": [
       {
-        "type": "image_pair|image_triple",
+        "type": "image_pair|image_triple|gaussian_splat|point_cloud",
         "label": "string",
         "input_paths": ["samples/input/xxx.png"],
-        "output_paths": ["samples/output/yyy.png"],
+        "output_paths": ["samples/output/yyy.ply"],
         "metadata": {}
       }
     ],
@@ -53,13 +55,28 @@ awk -F'\t' '$3=="inference" && $5=="success" {print $4}' reports/attempts.tsv | 
 
 **b.** `reports/analysis.json` と README.md からキーワードベースで分類:
 ```bash
+# 3D Gaussian Splatting
+grep -iE "gaussian splat|3dgs|gaussian-splatting" reports/analysis.json README.md 2>/dev/null
+# Point cloud reconstruction
+grep -iE "point cloud|pointcloud|dust3r|vggt|mvs|colmap|sfm" reports/analysis.json README.md 2>/dev/null
+# 2D カテゴリ
 grep -iE "stereo|disparity" reports/analysis.json README.md 2>/dev/null
 grep -iE "monocular depth|depth estimation|mono.?depth" reports/analysis.json README.md 2>/dev/null
 grep -iE "super.?res|super resolution|inpaint|style transfer|denois|restor|image.editing|text.to.image|image.to.image" reports/analysis.json README.md 2>/dev/null
 ```
 
-判定優先順位: `stereo_to_depth` → `mono_to_depth` → `rgb_to_rgb` → `unknown`
-（stereo は depth の一種なので先にチェック）
+**c.** 出力ファイル拡張子からも推定:
+- `.ply`, `.splat`, `.ksplat` が Phase 3 で生成されていれば 3D 系。PLY の場合は header を見て 3DGS と点群を区別する:
+  ```bash
+  # 3DGS 判定: f_dc_0 / scale_0 / rot_0 / opacity プロパティがあれば 3DGS
+  head -c 4096 {file}.ply | grep -qE "property float (f_dc_0|scale_0|rot_0|opacity)" && echo "gsplat" || echo "pointcloud"
+  ```
+  `.splat` / `.ksplat` は常に 3DGS 形式。
+
+判定優先順位（拡張子 > キーワード）:
+1. `.splat` / `.ksplat` または 3DGS 形式の `.ply` → `mv_to_gaussians`
+2. 点群形式の `.ply` → `images_to_pointcloud`
+3. `stereo_to_depth` → `mono_to_depth` → `rgb_to_rgb` → `unknown`
 
 ### Step 2: 入出力ファイルの特定
 
@@ -81,11 +98,13 @@ echo "$CMD" | grep -oE -- "--\w+[ =][^ ]+"
 **b.** コマンドから取得できない場合、Phase 3 実行直後に変化したファイルを `find` で探索:
 
 ```bash
-# reports/attempts.tsv より新しい画像ファイルを検索（Phase 3 で生成されたもの）
+# reports/attempts.tsv より新しい成果物ファイルを検索（Phase 3 で生成されたもの）
 find . -path ./reports -prune -o -path ./.pixi -prune -o \
   -type f -newer reports/attempts.tsv \
-  \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.npy" -o -name "*.exr" \) \
-  -print 2>/dev/null | head -10
+  \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" \
+     -o -name "*.npy" -o -name "*.pfm" -o -name "*.exr" \
+     -o -name "*.ply" -o -name "*.splat" -o -name "*.ksplat" \) \
+  -print 2>/dev/null | head -20
 ```
 
 **c.** デモスクリプトの argparse 定義を grep して、デフォルト値からも推定可能:
@@ -116,7 +135,11 @@ mkdir -p reports/samples/input reports/samples/output
 | `.npy`（float32 / uint16 depth） | matplotlib で colormap → PNG | PNG |
 | `.pfm`（stereo disparity 定番） | numpy で読み込み → colormap → PNG | PNG |
 | `.exr` | OpenCV があれば読み込み → 正規化 → PNG | PNG |
+| `.ply`（3DGS, 点群どちらも） | そのままコピー | .ply |
+| `.splat` / `.ksplat`（3DGS 圧縮形式） | そのままコピー | .splat/.ksplat |
 | その他 | スキップ、`note` に記録 | — |
+
+3D ファイルは変換しない。 Three.js の `PLYLoader` と `@mkkellogg/gaussian-splats-3d` がブラウザ側で直接読む。`.ply` のサイズが大きい場合でも圧縮は行わない。
 
 **d.** Colormapping 実装（matplotlib 優先、PIL フォールバック）:
 
@@ -206,6 +229,45 @@ PY
 }
 ```
 
+**category = `mv_to_gaussians`:**
+```json
+{
+  "type": "gaussian_splat",
+  "label": "再構成された 3D Gaussian Splats",
+  "input_paths": [],
+  "output_paths": ["samples/output/scene.ply"],
+  "metadata": {
+    "format": "ply",
+    "gaussian_count": 1250000
+  }
+}
+```
+
+`input_paths` は空配列で良い。`gaussian_count` は PLY header の `element vertex N` から取得:
+```bash
+head -c 4096 {file}.ply | grep -oE "element vertex [0-9]+" | awk '{print $3}'
+```
+
+**category = `images_to_pointcloud`:**
+```json
+{
+  "type": "point_cloud",
+  "label": "再構成された点群",
+  "input_paths": [],
+  "output_paths": ["samples/output/cloud.ply"],
+  "metadata": {
+    "format": "ply",
+    "point_count": 50000,
+    "has_color": true
+  }
+}
+```
+
+`has_color` は PLY header に `property uchar red/green/blue` があれば `true`:
+```bash
+head -c 4096 {file}.ply | grep -q "property uchar red" && echo true || echo false
+```
+
 ## ハルシネーション対策（CRITICAL）
 
 - **存在確認**: `input_paths` / `output_paths` は `ls reports/{path}` で実在確認してから items に追加
@@ -225,9 +287,9 @@ PY
 
 以下は別フェーズで対応する。現バージョンではすべて `category="unknown"`, `items=[]`, `note="{具体的な理由}"`:
 
-- 3D Gaussian Splatting (`.ply`, `.splat`, `.ksplat`)
-- NeRF / SDF / mesh (`.obj`, `.glb`, `.gltf`)
-- Point cloud (`.pcd`, `.xyz`, 点群形式の `.ply`)
+- NeRF / SDF (`.pth` の NeRF weights など、直接ブラウザ表示できないもの)
+- Mesh (`.obj`, `.glb`, `.gltf`)
+- Point cloud の非 PLY 形式 (`.pcd`, `.xyz`)
 - Video (`.mp4`, `.webm`, `.avi`)
 - Segmentation mask（単独でカラーマップされていない連結成分）
 - Optical flow（`.flo`, 2ch 配列）

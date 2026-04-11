@@ -31,6 +31,13 @@
   .artifacts ul { list-style: none; }
   .artifacts li { padding: 0.25rem 0; font-family: monospace; font-size: 0.85rem; }
   .artifacts li::before { content: "📄 "; }
+  .usage h3 { font-size: 1rem; margin: 0.75rem 0 0.5rem; color: var(--text); }
+  .usage h3:first-child { margin-top: 0; }
+  .usage h4 { font-size: 0.9rem; margin: 0.75rem 0 0.25rem; color: var(--muted); font-weight: 600; }
+  .usage p { margin: 0.25rem 0 0.5rem; font-size: 0.9rem; }
+  .usage-note { color: var(--muted); font-size: 0.8rem; }
+  .usage-verified { color: var(--success); font-weight: 600; }
+  .usage-empty { color: var(--muted); font-style: italic; }
   pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; line-height: 1.5; }
   .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--muted); text-align: center; }
 </style>
@@ -61,6 +68,19 @@
       <span class="value">{{DURATION_TOTAL}}</span>
     </div>
   </div>
+</div>
+
+<!-- ===== Usage Guide ===== -->
+<h2>使い方</h2>
+<div class="card usage">
+  <h3>Quickstart</h3>
+{{QUICKSTART_BLOCK}}
+
+  <h3>発展的使い方</h3>
+{{ADVANCED_BLOCK}}
+
+  <h3>開発者向け</h3>
+{{DEVELOPER_BLOCK}}
 </div>
 
 <!-- ===== Attempt History ===== -->

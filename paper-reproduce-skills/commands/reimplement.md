@@ -188,6 +188,10 @@ while not inference_succeeded:
 - `build.log`, `inference.log`（ログは reports/attempts.tsv に集約済み）
 - `_headless_patch.py`（Phase 3 で作成した場合）
 
+### Step 1.5: 使い方情報の抽出
+
+**usage-documenter スキルを参照して実行。** 再現したリポジトリの使い方を 3 段階（Quickstart / 発展的 / 開発者向け）で抽出し、`usage` オブジェクトを生成する。Step 2 で `reports/report.json` に組み込む。
+
 ### Step 2: reports/report.json 生成（機械可読）
 
 ```json
@@ -202,9 +206,34 @@ while not inference_succeeded:
   "pixi_toml_hash": "string",
   "inference_output": "string|null",
   "errors": ["string"],
+  "usage": {
+    "quickstart": {
+      "description": "string",
+      "command": "string",
+      "verified": "boolean",
+      "note": "string|null"
+    } | null,
+    "advanced": [
+      {
+        "title": "string",
+        "command": "string",
+        "verified": "boolean",
+        "source": "string",
+        "note": "string|null"
+      }
+    ],
+    "developer": {
+      "description": "string",
+      "sample_code": "string",
+      "import_path": "string",
+      "note": "string|null"
+    } | null
+  },
   "plugin_version": "1.0.0"
 }
 ```
+
+**usage フィールド:** Step 1.5 で生成した usage オブジェクトをそのまま埋め込む。抽出できなかった階層は `null` を入れる（`advanced` のみ空配列 `[]`）。スキーマ詳細は usage-documenter スキルを参照。
 
 **status の判定基準:**
 - `success`: pixi install 成功 + 推論実行成功（出力ファイルが生成された）
@@ -230,11 +259,51 @@ while not inference_succeeded:
 | `{{DURATION_TOTAL}}` | 全 duration_s の合算（人間可読形式: "2m 34s"） |
 | `{{ATTEMPTS_ROWS}}` | reports/attempts.tsv の各行を `<tr>` に変換 |
 | `{{ARTIFACTS_LIST}}` | 生成物ファイルの `<li>` リスト |
+| `{{QUICKSTART_BLOCK}}` | `usage.quickstart` を HTML にレンダリング（後述） |
+| `{{ADVANCED_BLOCK}}` | `usage.advanced` を HTML にレンダリング（後述） |
+| `{{DEVELOPER_BLOCK}}` | `usage.developer` を HTML にレンダリング（後述） |
 | `{{PIXI_TOML_CONTENT}}` | pixi.toml の内容（HTML エスケープ済み） |
 | `{{ERRORS_LIST}}` | エラーの `<li>` リスト（`failed`/`partial` 時のみ） |
 | `{{PLUGIN_VERSION}}` | plugin.json の `version` |
 
 **ASSERTION: reports/report.html の `<tr>` 行数 == reports/attempts.tsv のデータ行数。不一致は禁止。**
+
+#### usage ブロックのレンダリング規則
+
+**`{{QUICKSTART_BLOCK}}`** — `usage.quickstart` が非 null の場合:
+```html
+<p>{description}</p>
+<pre><code>{command}</code></pre>
+<p class="usage-note">{verified ? '<span class="usage-verified">✓ Phase 3 で動作確認済み</span>' : note}</p>
+```
+null の場合:
+```html
+<p class="usage-empty">Quickstart コマンドを特定できませんでした。</p>
+```
+
+**`{{ADVANCED_BLOCK}}`** — `usage.advanced` の各要素を順に:
+```html
+<h4>{title}</h4>
+<pre><code>{command}</code></pre>
+<p class="usage-note">出典: {source}{note ? ' — ' + note : ''}</p>
+```
+空配列の場合:
+```html
+<p class="usage-empty">追加の使い方は見つかりませんでした。</p>
+```
+
+**`{{DEVELOPER_BLOCK}}`** — `usage.developer` が非 null の場合:
+```html
+<p>{description}</p>
+<pre><code>{sample_code}</code></pre>
+<p class="usage-note">Import: <code>{import_path}</code>{note ? ' — ' + note : ''}</p>
+```
+null の場合:
+```html
+<p class="usage-empty">API としての利用想定は見つかりませんでした。Quickstart のスクリプト直接呼び出しを推奨。</p>
+```
+
+**HTML エスケープ必須**: `command` / `sample_code` / 各 `description` / `note` 中の `<`, `>`, `&`, `"`, `'` は必ずエスケープする。
 
 ### Step 4: 成果物の確認
 

@@ -55,7 +55,7 @@ allowed-tools: Bash Read Write Edit Glob Grep
 
 **`+cuXXX` が無い場合（バージョンのみ指定）:**
 - Dockerfile や README から CUDA バージョンを推定
-- 推定できなければ analysis.json の `cuda_version` を使用
+- 推定できなければ `reports/analysis.json` の `cuda_version` を使用
 - `extra-index-urls` で該当 CUDA バージョンの wheel index を指定
 
 ### 複数 requirements ファイルの統合 (Type B3)

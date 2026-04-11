@@ -50,7 +50,7 @@ for url in $REPOS; do
       --print \
       --prompt '/reimplement' &&
     mkdir -p '$RESULTS_DIR/$REPO_NAME' &&
-    cp -f report.json report.html attempts.tsv analysis.json '$RESULTS_DIR/$REPO_NAME/' 2>/dev/null
+    cp -rf reports '$RESULTS_DIR/$REPO_NAME/' 2>/dev/null
   "
 done
 
@@ -63,23 +63,25 @@ pueue status
 
 ## 結果の永続化
 
-各リポジトリの成果物は `$RESULTS_DIR/{repo_name}/` にコピーされる:
+各リポジトリの `reports/` ディレクトリを丸ごと `$RESULTS_DIR/{repo_name}/reports/` にコピーする:
 
 ```
 /results/
 ├── repo1/
-│   ├── report.json
-│   ├── report.html
-│   ├── attempts.tsv
-│   └── analysis.json
+│   └── reports/
+│       ├── report.json
+│       ├── report.html
+│       ├── attempts.tsv
+│       └── analysis.json
 ├── repo2/
-│   └── ...
+│   └── reports/
+│       └── ...
 └── summary.json  ← 全リポジトリの集約レポート
 ```
 
 ## summary.json 生成
 
-全リポジトリの report.json を集約:
+全リポジトリの `reports/report.json` を集約:
 
 ```json
 {

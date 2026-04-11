@@ -12,24 +12,40 @@ allowed-tools: Bash Read Write Edit Glob Grep Agent
 
 ## Phase 0: Initialize
 
+### 成果物レイアウト（全 Phase 共通）
+
+```
+{repo_root}/
+├── pixi.toml            # 再現環境本体（ルート直下、commit 対象）
+├── pixi.lock            # 同上
+└── reports/             # レポート系成果物の集約先
+    ├── analysis.json    # Phase 1 解析結果
+    ├── attempts.tsv     # 全試行ログ（git 管理外）
+    ├── report.json      # Phase 4 機械可読レポート
+    └── report.html      # Phase 4 目視確認レポート
+```
+
+### 初期化手順
+
 1. `git status` で CWD が git リポジトリであることを確認
 2. `git stash` で未コミット変更を退避（あれば）
 3. リポジトリ名・URL を `git remote -v` から自動検出
 4. `git submodule status` で submodule の有無を確認
-5. attempts.tsv を初期化（ヘッダー行のみ書き込み）:
+5. `mkdir -p reports`
+6. `reports/attempts.tsv` を初期化（ヘッダー行のみ書き込み）:
    ```
    attempt\tcommit\tphase\taction\tresult\terror_tier\terror_summary\tduration_s
    ```
-6. `ls` で依存ファイル一覧を取得（Phase 1 の事前情報）
-7. `.gitignore` に `attempts.tsv` を追加（git 管理外にする）
+7. `.gitignore` に `reports/attempts.tsv` を追加
+8. `ls` で依存ファイル一覧を取得（Phase 1 の事前情報）
 
 ---
 
 ## Phase 1: リポジトリ解析
 
-**repo-analyzer スキルを参照して実行。** 結果を `analysis.json` として出力。
+**repo-analyzer スキルを参照して実行。** 結果を `reports/analysis.json` として出力。
 
-analysis.json のスキーマ:
+reports/analysis.json のスキーマ:
 
 ```json
 {
@@ -90,7 +106,7 @@ analysis.json のスキーマ:
 
 **pixi-env-builder スキル、dep-converter スキル、cuda-dependency-resolver スキルを参照して実行。**
 
-analysis.json の `dep_type` に基づいて変換戦略を選択し、pixi.toml を生成する。各 Type の詳細フローは pixi-env-builder スキルに定義。変換ルールは dep-converter スキルに定義。CUDA 関連は cuda-dependency-resolver スキルに定義。
+`reports/analysis.json` の `dep_type` に基づいて変換戦略を選択し、pixi.toml を生成する。各 Type の詳細フローは pixi-env-builder スキルに定義。変換ルールは dep-converter スキルに定義。CUDA 関連は cuda-dependency-resolver スキルに定義。
 
 ### Experiment Loop（NEVER STOP）
 
@@ -103,14 +119,14 @@ while not succeeded:
   3. git add pixi.toml && git commit -m "attempt #{n}: {action}"
   4. pixi install 2>&1 | tee build.log
   5. END_TIME=$(date +%s) && DURATION=$((END_TIME - START_TIME))  <- 省略禁止
-  6. attempts.tsv にログ追記（成功でも失敗でも必ず記録）  <- 省略禁止
+  6. reports/attempts.tsv にログ追記（成功でも失敗でも必ず記録）  <- 省略禁止
   7. 結果判定:
      成功 -> advance + 環境検証 (python -c "import torch; print(torch.cuda.is_available())")
      失敗 -> diagnose + classify (experiment-loop スキルの 3-Tier 分類に従う)
   8. 失敗時: git reset --hard HEAD~1
 ```
 
-**CRITICAL: ステップ1, 5, 6 は成功・失敗を問わず毎回必ず実行する。attempts.tsv への記録漏れは禁止。**
+**CRITICAL: ステップ1, 5, 6 は成功・失敗を問わず毎回必ず実行する。reports/attempts.tsv への記録漏れは禁止。**
 
 ---
 
@@ -120,7 +136,7 @@ while not succeeded:
 
 ### Step 1: モデルダウンロード
 
-analysis.json の `model_download` に基づいてモデルをダウンロード:
+`reports/analysis.json` の `model_download` に基づいてモデルをダウンロード:
 
 | method | 実行方法 |
 |--------|---------|
@@ -151,7 +167,7 @@ while not inference_succeeded:
   3. git add -A && git commit -m "attempt #{n}: {action}"
   4. pixi run python {demo_command} 2>&1 | tee inference.log
   5. END_TIME=$(date +%s) && DURATION=$((END_TIME - START_TIME))  <- 省略禁止
-  6. attempts.tsv にログ追記  <- 省略禁止
+  6. reports/attempts.tsv にログ追記  <- 省略禁止
   7. 結果判定:
      成功（出力ファイルが生成された）-> Phase 4 へ
      失敗 -> experiment-loop スキルの 3-Tier 分類に従う:
@@ -169,10 +185,10 @@ while not inference_succeeded:
 
 一時ファイルを削除:
 - `cleaned.yml`（Type A2/A3 で作成）
-- `build.log`, `inference.log`（ログは attempts.tsv に集約済み）
+- `build.log`, `inference.log`（ログは reports/attempts.tsv に集約済み）
 - `_headless_patch.py`（Phase 3 で作成した場合）
 
-### Step 2: report.json 生成（機械可読）
+### Step 2: reports/report.json 生成（機械可読）
 
 ```json
 {
@@ -195,9 +211,9 @@ while not inference_succeeded:
 - `partial`: pixi install 成功 + 推論未実行 or 一部成功
 - `failed`: pixi install 失敗、または推論が根本的に動作しない
 
-**duration_total_s**: attempts.tsv の全 duration_s を合算。
+**duration_total_s**: reports/attempts.tsv の全 duration_s を合算。
 
-### Step 3: report.html 生成（目視確認用）
+### Step 3: reports/report.html 生成（目視確認用）
 
 **templates/report.html テンプレートを参照して生成する。**
 
@@ -205,28 +221,24 @@ while not inference_succeeded:
 
 | プレースホルダー | 値の取得元 |
 |---|---|
-| `{{REPO_NAME}}` | analysis.json の `repo_name` |
-| `{{REPO_URL}}` | analysis.json の `repo_url` |
+| `{{REPO_NAME}}` | reports/analysis.json の `repo_name` |
+| `{{REPO_URL}}` | reports/analysis.json の `repo_url` |
 | `{{TIMESTAMP}}` | 現在の日時 (ISO 8601) |
-| `{{STATUS}}` | report.json の `status` |
-| `{{DEP_TYPE}}` | analysis.json の `dep_type` + `dep_type_label` |
-| `{{TOTAL_ATTEMPTS}}` | attempts.tsv のデータ行数 |
+| `{{STATUS}}` | reports/report.json の `status` |
+| `{{DEP_TYPE}}` | reports/analysis.json の `dep_type` + `dep_type_label` |
+| `{{TOTAL_ATTEMPTS}}` | reports/attempts.tsv のデータ行数 |
 | `{{DURATION_TOTAL}}` | 全 duration_s の合算（人間可読形式: "2m 34s"） |
-| `{{ATTEMPTS_ROWS}}` | attempts.tsv の各行を `<tr>` に変換 |
+| `{{ATTEMPTS_ROWS}}` | reports/attempts.tsv の各行を `<tr>` に変換 |
 | `{{ARTIFACTS_LIST}}` | 生成物ファイルの `<li>` リスト |
 | `{{PIXI_TOML_CONTENT}}` | pixi.toml の内容（HTML エスケープ済み） |
 | `{{ERRORS_LIST}}` | エラーの `<li>` リスト（`failed`/`partial` 時のみ） |
 | `{{PLUGIN_VERSION}}` | plugin.json の `version` |
 
-**ASSERTION: report.html の `<tr>` 行数 == attempts.tsv のデータ行数。不一致は禁止。**
+**ASSERTION: reports/report.html の `<tr>` 行数 == reports/attempts.tsv のデータ行数。不一致は禁止。**
 
-### Step 4: 成果物の保持
+### Step 4: 成果物の確認
 
-以下のファイルをリポジトリルートに保持:
-- `pixi.toml` + `pixi.lock`（環境の完全な再現に必要）
-- `analysis.json`（解析結果）
-- `attempts.tsv`（全試行ログ）
-- `report.json` + `report.html`（レポート）
+Phase 0 の「成果物レイアウト」のとおりに全ファイルが揃っていることを確認する。
 
 ---
 

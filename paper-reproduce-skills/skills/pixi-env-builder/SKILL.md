@@ -1,13 +1,13 @@
 ---
 name: pixi-env-builder
-description: analysis.json の dep_type に基づいて pixi.toml を生成する。denkiwakame ワークフロー (Day 17/19) に準拠。/reimplement の Phase 2 で自動参照される。
+description: reports/analysis.json の dep_type に基づいて pixi.toml を生成する。denkiwakame ワークフロー (Day 17/19) に準拠。/reimplement の Phase 2 で自動参照される。
 user-invocable: false
 allowed-tools: Bash Read Write Edit Glob Grep
 ---
 
 # pixi-env-builder: Pixi 環境構築パターン
 
-analysis.json の `dep_type` に基づき、適切な変換戦略で pixi.toml を生成する。
+`reports/analysis.json` の `dep_type` に基づき、適切な変換戦略で pixi.toml を生成する。
 
 ## Type A: conda 系 (environment.yml)
 
@@ -317,7 +317,7 @@ channels = ["pytorch", "nvidia", "conda-forge"]
 
 ### 2. CUDA 統一
 
-analysis.json の `pixi_strategy.torch_source` に基づく:
+`reports/analysis.json` の `pixi_strategy.torch_source` に基づく:
 
 **PyPI wheel の場合** (torch_source = "pypi_wheel"):
 - torch は `[pypi-dependencies]` に入れる

@@ -1,13 +1,13 @@
 ---
 name: repo-analyzer
-description: リポジトリの依存管理方式を解析し、6-Type分類を行い analysis.json を生成する。/reimplement の Phase 1 で自動参照される。
+description: リポジトリの依存管理方式を解析し、6-Type分類を行い reports/analysis.json を生成する。/reimplement の Phase 1 で自動参照される。
 user-invocable: false
 allowed-tools: Bash Read Glob Grep Write
 ---
 
 # repo-analyzer: リポジトリ解析 + 6-Type 判定
 
-CWD のリポジトリを解析し、Pixi 環境構築に必要な情報を `analysis.json` として出力する。
+CWD のリポジトリを解析し、Pixi 環境構築に必要な情報を `reports/analysis.json` として出力する。`reports/` ディレクトリは `/reimplement` の Phase 0 で作成済み。
 
 ## 解析手順
 
@@ -34,7 +34,7 @@ ls Dockerfile Dockerfile.* docker/Dockerfile 2>/dev/null
 
 ### Step 2: defaults チャンネル検出
 
-environment.yml / conda.yaml が存在する場合、`channels:` セクションに `defaults` が含まれているかを確認する。検出した場合は analysis.json の `pixi_strategy` に記録し、Phase 2 で除去する。
+environment.yml / conda.yaml が存在する場合、`channels:` セクションに `defaults` が含まれているかを確認する。検出した場合は `reports/analysis.json` の `pixi_strategy` に記録し、Phase 2 で除去する。
 
 ### Step 3: 6-Type 判定
 
@@ -120,6 +120,6 @@ README.md や スクリプトから以下を検出:
 | medium | Type A2/A3/B2/B3 + submodule あり or CUDA 拡張ビルドが必要 |
 | hard | Type D/E/F, 複数の submodule + C++/CUDA 拡張, 依存情報が不完全 |
 
-### Step 9: analysis.json 出力
+### Step 9: reports/analysis.json 出力
 
-全解析結果を `analysis.json` として CWD に書き出す。スキーマは `/reimplement` コマンドの定義を参照。
+全解析結果を `reports/analysis.json` として書き出す。スキーマは `/reimplement` コマンドの定義を参照。

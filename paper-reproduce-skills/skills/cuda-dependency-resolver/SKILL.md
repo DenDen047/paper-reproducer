@@ -24,7 +24,7 @@ denkiwakame 氏の Day 17 (pixi で CUDA を管理する) に準拠。
 ## CUDA バージョン決定フロー
 
 ```
-1. analysis.json の cuda_version を確認
+1. `reports/analysis.json` の cuda_version を確認
 2. 未特定の場合:
    - PyTorch バージョンから推定:
      torch 2.0-2.1 → CUDA 11.8 or 12.1

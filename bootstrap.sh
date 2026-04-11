@@ -120,6 +120,12 @@ fi
 
 mkdir -p "$HOME/.claude"
 
+# --- Claude 設定ファイルのマウント ---
+CLAUDE_JSON_MOUNT=()
+if [[ -f "$HOME/.claude.json" ]]; then
+  CLAUDE_JSON_MOUNT=(-v "$HOME/.claude.json:/home/claude/.claude.json")
+fi
+
 # --- ヘルパー: 1 repo の clone（ホスト側）---
 clone_one() {
   local url="$1"
@@ -157,6 +163,7 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
   exec docker run --rm -it \
     -v "$WORKSPACE_DIR:/workspaces" \
     -v "$HOME/.claude:/home/claude/.claude" \
+    "${CLAUDE_JSON_MOUNT[@]}" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$REPO_NAME" \
     --shm-size=8g \
@@ -203,6 +210,7 @@ launch_one() {
   docker run --rm \
     -v "$WORKSPACE_DIR:/workspaces" \
     -v "$HOME/.claude:/home/claude/.claude" \
+    "${CLAUDE_JSON_MOUNT[@]}" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$name" \
     --shm-size=8g \

@@ -38,6 +38,18 @@
   .usage-note { color: var(--muted); font-size: 0.8rem; }
   .usage-verified { color: var(--success); font-weight: 600; }
   .usage-empty { color: var(--muted); font-style: italic; }
+  .samples .sample-item { margin-bottom: 1.5rem; }
+  .samples .sample-item:last-child { margin-bottom: 0; }
+  .samples h4 { font-size: 0.9rem; margin: 0 0 0.5rem; color: var(--muted); font-weight: 600; }
+  .sample-grid { display: grid; gap: 0.75rem; }
+  .sample-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sample-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sample-grid figure { margin: 0; }
+  .sample-grid img { width: 100%; height: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); display: block; }
+  .sample-grid figcaption { font-size: 0.75rem; color: var(--muted); text-align: center; margin-top: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  @media (max-width: 640px) {
+    .sample-grid-2, .sample-grid-3 { grid-template-columns: 1fr; }
+  }
   pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; line-height: 1.5; }
   .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--muted); text-align: center; }
 </style>
@@ -81,6 +93,12 @@
 
   <h3>開発者向け</h3>
 {{DEVELOPER_BLOCK}}
+</div>
+
+<!-- ===== Sample I/O ===== -->
+<h2>サンプル入出力</h2>
+<div class="card samples">
+{{SAMPLES_BLOCK}}
 </div>
 
 <!-- ===== Attempt History ===== -->

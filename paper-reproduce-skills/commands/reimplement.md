@@ -22,7 +22,10 @@ allowed-tools: Bash Read Write Edit Glob Grep Agent
     ├── analysis.json    # Phase 1 解析結果
     ├── attempts.tsv     # 全試行ログ（git 管理外）
     ├── report.json      # Phase 4 機械可読レポート
-    └── report.html      # Phase 4 目視確認レポート
+    ├── report.html      # Phase 4 目視確認レポート
+    └── samples/         # Phase 4 入出力サンプル（report.html が参照）
+        ├── input/
+        └── output/
 ```
 
 ### 初期化手順
@@ -192,6 +195,10 @@ while not inference_succeeded:
 
 **usage-documenter スキルを参照して実行。** 再現したリポジトリの使い方を 3 段階（Quickstart / 発展的 / 開発者向け）で抽出し、`usage` オブジェクトを生成する。Step 2 で `reports/report.json` に組み込む。
 
+### Step 1.6: 入出力サンプルの抽出
+
+**sample-embedder スキルを参照して実行。** Phase 3 の成功コマンドから入出力ファイルを特定し、`reports/samples/` 配下に正規化コピーして `samples` オブジェクトを生成する。Step 2 で `reports/report.json` に組み込む。
+
 ### Step 2: reports/report.json 生成（機械可読）
 
 ```json
@@ -229,11 +236,26 @@ while not inference_succeeded:
       "note": "string|null"
     } | null
   },
+  "samples": {
+    "category": "rgb_to_rgb|mono_to_depth|stereo_to_depth|unknown",
+    "items": [
+      {
+        "type": "image_pair|image_triple",
+        "label": "string",
+        "input_paths": ["string"],
+        "output_paths": ["string"],
+        "metadata": {}
+      }
+    ],
+    "note": "string|null"
+  },
   "plugin_version": "1.0.0"
 }
 ```
 
 **usage フィールド:** Step 1.5 で生成した usage オブジェクトをそのまま埋め込む。抽出できなかった階層は `null` を入れる（`advanced` のみ空配列 `[]`）。スキーマ詳細は usage-documenter スキルを参照。
+
+**samples フィールド:** Step 1.6 で生成した samples オブジェクトをそのまま埋め込む。パスは `reports/` からの相対（例: `samples/input/left.png`）。カテゴリ判定・変換ルールは sample-embedder スキルを参照。
 
 **status の判定基準:**
 - `success`: pixi install 成功 + 推論実行成功（出力ファイルが生成された）
@@ -262,6 +284,7 @@ while not inference_succeeded:
 | `{{QUICKSTART_BLOCK}}` | `usage.quickstart` を HTML にレンダリング（後述） |
 | `{{ADVANCED_BLOCK}}` | `usage.advanced` を HTML にレンダリング（後述） |
 | `{{DEVELOPER_BLOCK}}` | `usage.developer` を HTML にレンダリング（後述） |
+| `{{SAMPLES_BLOCK}}` | `samples.items` を HTML にレンダリング（後述） |
 | `{{PIXI_TOML_CONTENT}}` | pixi.toml の内容（HTML エスケープ済み） |
 | `{{ERRORS_LIST}}` | エラーの `<li>` リスト（`failed`/`partial` 時のみ） |
 | `{{PLUGIN_VERSION}}` | plugin.json の `version` |
@@ -304,6 +327,40 @@ null の場合:
 ```
 
 **HTML エスケープ必須**: `command` / `sample_code` / 各 `description` / `note` 中の `<`, `>`, `&`, `"`, `'` は必ずエスケープする。
+
+#### samples ブロックのレンダリング規則
+
+**`{{SAMPLES_BLOCK}}`** — `samples.items` を順に:
+
+**`type == "image_pair"`:**
+```html
+<div class="sample-item">
+  <h4>{label}</h4>
+  <div class="sample-grid sample-grid-2">
+    <figure><img src="{input_paths[0]}" alt="input" loading="lazy"><figcaption>Input</figcaption></figure>
+    <figure><img src="{output_paths[0]}" alt="output" loading="lazy"><figcaption>Output</figcaption></figure>
+  </div>
+</div>
+```
+
+**`type == "image_triple"`:**
+```html
+<div class="sample-item">
+  <h4>{label}</h4>
+  <div class="sample-grid sample-grid-3">
+    <figure><img src="{input_paths[0]}" alt="left" loading="lazy"><figcaption>Left</figcaption></figure>
+    <figure><img src="{input_paths[1]}" alt="right" loading="lazy"><figcaption>Right</figcaption></figure>
+    <figure><img src="{output_paths[0]}" alt="disparity" loading="lazy"><figcaption>Disparity</figcaption></figure>
+  </div>
+</div>
+```
+
+`items` が空配列の場合:
+```html
+<p class="usage-empty">サンプルを取得できませんでした{note ? '（' + note + '）' : ''}。</p>
+```
+
+**HTML エスケープ必須**: `label`, `note` 中の `<`, `>`, `&`, `"`, `'` をエスケープ。`src` のパスは HTML 属性値としてエスケープ（`"` は `&quot;`）。
 
 ### Step 4: 成果物の確認
 

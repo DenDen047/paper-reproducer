@@ -541,8 +541,8 @@ git commit -m "chore: record archive path"
 ```
 
 **注意事項:**
-- `--amend` は使わない。Step 5.1 で作った最終コミットを破壊せず新規コミットで追記する。
-- 結果として**アーカイブファイル自体は Step 5.1 時点の HEAD を指し、その中の `report.json` は `archive_path: null`** となる。
+- `--amend` は使わない（核心原則「Git 運用ルール」参照）。必ず新規コミットで追記する。
+- 結果として**アーカイブファイル自体は Step 5.1 時点の HEAD を指し、その中の `report.json` は `archive_path: null`** となる。Step 6 のターミナル出力はワーキングツリーの `report.json` を読むので実害はない。
 
 #### Step 5.4: アーカイブをスキップした場合
 
@@ -585,6 +585,14 @@ Archive: {archive_path or "(not created; status != success)"}
 ---
 
 ## 核心原則
+
+### Git 運用ルール（全 Phase 共通）
+
+- **`git commit --amend` は全 Phase で禁止**。書き換え対象が最終コミットであっても、過去コミットであっても、例外なく使わない。履歴を破壊すると archive が参照している SHA / attempts.tsv に記録された SHA と実際のコミットがズレるため。修正を追加したくなったら必ず**新しいコミットを積む**（例: `chore: fix gitignore anchor for reports/samples/output`）。
+- **`git reset --hard HEAD~1` は Experiment Loop の失敗復旧専用**。Phase 2/3 の試行が失敗した直後にのみ使う（`experiment-loop` スキル参照）。それ以外の文脈（コミット済みの過去作業を巻き戻す等）では禁止。
+- **`git push --force` は禁止**。ローカル作業ブランチでも remote への強制 push は行わない。
+- **`git commit` のたびに START_TIME / END_TIME を記録し、`reports/attempts.tsv` に 1 行追記する**（Phase 2/3 の Experiment Loop ルール。成功・失敗を問わず毎回実行）。
+- **コミットメッセージは命令形**のシンプルな英語で 1 行目 72 文字以内（例: `attempt #3: bump libc to 2.31 for open3d`）。
 
 ### NEVER STOP
 - 環境構築に失敗しても止まらない — Tier 分類に従って自律的に修正・再試行

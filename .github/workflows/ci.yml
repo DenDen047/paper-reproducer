@@ -94,4 +94,6 @@ jobs:
           docker run --rm --entrypoint="" paper-reproduce-test \
             ls /paper-reproduce-skills/templates/report.html
           docker run --rm --entrypoint="" paper-reproduce-test \
-            which pueue pueued
+            ls /usr/local/bin/entrypoint.sh
+          docker run --rm --entrypoint="" paper-reproduce-test \
+            bash -c 'test "$(stat -c %U /home/claude/.cache)" = claude'

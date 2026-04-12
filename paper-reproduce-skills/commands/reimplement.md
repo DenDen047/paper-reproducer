@@ -323,7 +323,7 @@ while not inference_succeeded:
 
 ### Step 3: reports/report.html 生成（目視確認用）
 
-**templates/report.html テンプレートを参照して生成する。**
+**templates/report.html テンプレートを参照して生成する。** テンプレートと同じディレクトリにある `templates/view.sh` も `reports/view.sh` として同時にコピーし実行権限を付与する（`chmod +x reports/view.sh`）。`view.sh` は `python3 -m http.server` を起動して `report.html` を HTTP 経由で開けるようにするためのヘルパで、3D ビューワ (CORS 対策) を動かすのに必要。
 
 テンプレート内のプレースホルダーを実際の値で置換する:
 

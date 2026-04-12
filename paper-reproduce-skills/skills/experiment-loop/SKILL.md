@@ -34,11 +34,22 @@ attempt\tcommit\tphase\taction\tresult\terror_tier\terror_summary\tduration_s
 | attempt | 試行番号 (1から連番) |
 | commit | git short hash (7文字) |
 | phase | `env-build` / `inference` / `verify` |
-| action | 実行した操作の簡潔な説明 |
-| result | `success` / `fail` / `crash` / `timeout` |
+| action | この試行で導入した変更 の簡潔な説明（例: `bump_libc_2.31`, `add_c_cxx_compiler`, `patch_run_demo_headless`） |
+| result | action の下流検証ステップ（`pixi install` や `python scripts/run_demo.py` 等）が成功したかどうか。`success` / `fail` / `crash` / `timeout` |
 | error_tier | `tier1` / `tier2` / `tier3` / `-` |
-| error_summary | エラーの1行要約 (失敗時のみ) |
-| duration_s | 操作にかかった秒数 |
+| error_summary | 検証ステップが失敗したときの 1 行要約（失敗時のみ） |
+| duration_s | 操作 (検証ステップを含む) にかかった秒数 |
+
+### action と result の主語を揃える
+
+**action は「変更」、result は「その変更で狙った検証ステップの成否」**。action と result の主語がずれるとログが読めなくなる。
+
+- ❌ 悪い例: `action=headless_patch_run_demo, result=fail, error=triton_no_C_compiler`
+  → 主語が曖昧。headless patch 自体は成功しているのに fail と記録されている。
+- ✅ 良い例: `action=patch_run_demo_headless, result=success, duration_s=5`（patch して demo 実行、demo が CUDA error で失敗したら別行として `action=add_c_cxx_compiler, result=success, duration_s=15` を追加）
+- ✅ 別解: 1 行にまとめたいなら action 側で「変更 + 検証」を合成する。`action=headless_patch_and_run_demo, result=fail, error=triton_no_C_compiler` のように 1 つの試行として明示する（ただしこの場合 headless patch 自体は commit 済みなので次の reset で消える点に注意）。
+
+**原則:** 変更と検証をセットにした 1 試行 = 1 行。次の試行は前の失敗を踏まえた別の変更を加えて新しい行を作る。同じコミット SHA を複数行で共有しない。
 
 ### ログ記録の実装
 

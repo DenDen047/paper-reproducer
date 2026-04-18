@@ -9,6 +9,12 @@ for d in /home/claude/.cache /home/claude/.cache/rattler; do
   fi
 done
 
+# open3d 0.19+ は libc 2.31 以上必須
+libc_ver=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+if [[ -n "$libc_ver" ]] && [[ "$(printf '%s\n2.31\n' "$libc_ver" | sort -V | head -1)" == "$libc_ver" ]] && [[ "$libc_ver" != "2.31" ]]; then
+  echo "[entrypoint] WARN: libc $libc_ver < 2.31 — open3d 0.19+ may fail to install" >&2
+fi
+
 exec claude \
   --dangerously-skip-permissions \
   --plugin-dir /paper-reproduce-skills \

@@ -17,8 +17,8 @@ allowed-tools: Bash Read Write Edit Glob Grep
 |---|---|
 | `numpy==1.24.0` | `numpy = "==1.24.0"` |
 | `numpy>=1.20,<2` | `numpy = ">=1.20,<2"` |
-| `torch==2.1.0+cu121` | `torch = { version = "==2.1.0", index = "pytorch-cu121" }` ※ `+cuXXX` を除去し index 指定 |
-| `torchvision==0.16.0+cu121` | `torchvision = { version = "==0.16.0", index = "pytorch-cu121" }` |
+| `torch==2.1.0+cu121` | `torch = "==2.1.0"` + `[pypi-options] extra-index-urls = ["https://download.pytorch.org/whl/cu121"]` (下記詳細) |
+| `torchvision==0.16.0+cu121` | 同上 |
 | `git+https://github.com/user/repo.git` | `repo = { git = "https://github.com/user/repo.git" }` |
 | `git+https://github.com/user/repo.git@main` | `repo = { git = "https://github.com/user/repo.git", branch = "main" }` |
 | `git+https://github.com/user/repo.git@abc1234` | `repo = { git = "https://github.com/user/repo.git", rev = "abc1234" }` |
@@ -37,26 +37,29 @@ allowed-tools: Bash Read Write Edit Glob Grep
 | 空行 | 無視 |
 | `package ; python_version >= "3.8"` | 環境マーカーを除去（Linux のみ対象のため） |
 
-### PyTorch wheel index の設定
+### PyTorch wheel index の設定 (唯一の正規パターン)
 
-`torch==X.X.X+cuXXX` 形式を検出したら、以下の変換を行う:
+`torch==X.X.X+cuXXX` 形式を検出したら:
 
 1. `+cuXXX` サフィックスからCUDAバージョンを抽出 (例: `cu121` → `12.1`)
-2. `[pypi-options]` に index URL を追加:
-   ```toml
-   [pypi-options]
-   extra-index-urls = ["https://download.pytorch.org/whl/cu121"]
-   ```
-3. torch のバージョンから `+cuXXX` を除去:
-   ```toml
-   [pypi-dependencies]
-   torch = "==2.1.0"
-   ```
+2. `[pypi-options] extra-index-urls` に URL を追加
+3. torch のバージョンから `+cuXXX` を除去
 
-**`+cuXXX` が無い場合（バージョンのみ指定）:**
+```toml
+[pypi-options]
+extra-index-urls = ["https://download.pytorch.org/whl/cu121"]
+
+[pypi-dependencies]
+torch = "==2.1.0"
+```
+
+**`+cuXXX` が無い場合**:
 - Dockerfile や README から CUDA バージョンを推定
 - 推定できなければ `reports/analysis.json` の `cuda_version` を使用
-- `extra-index-urls` で該当 CUDA バージョンの wheel index を指定
+- `extra-index-urls` に該当 CUDA の wheel index を指定
+
+**使わないパターン (禁止)**:
+`torch = { version = "==X", index = "pytorch-cu121" }` のような名前付き `index=` 参照は使わない。名前を `[pypi-options]` で定義し忘れると pixi.toml が syntax error で死ぬ。`extra-index-urls` に統一する。
 
 ### 複数 requirements ファイルの統合 (Type B3)
 
@@ -327,6 +330,17 @@ compileall, site, sysconfig, platform, errno, faulthandler, gc
 ```
 
 **判定ルール**: 上記に含まれる、または `_` で始まるモジュールは除外。それ以外はサードパーティと判定。
+
+### ファイル単位の除外 (Type F 過剰抽出の防止)
+
+import スキャン対象から除外するファイル:
+
+- `tests/`, `test_*.py`, `*_test.py` — テスト専用 (pytest, hypothesis 等を誤検出)
+- `benchmarks/`, `bench_*.py` — ベンチ専用
+- `scripts/` 配下で **demo_commands に列挙されていない** スクリプト — 学習ユーティリティが多い
+- `docs/`, `examples/notebooks/*.ipynb` — 実行時の依存ではない
+
+README の demo_commands (analysis.json) に現れるエントリポイントから逆算した**必要最小の依存**を第一候補にする。不足は experiment-loop で後から追加できるので、初期は絞って出す。
 
 ---
 

@@ -77,6 +77,14 @@ ldd --version | head -1
 
 **`repo-analyzer` スキル参照。** 結果を `reports/analysis.json` に出力。
 
+### Feasibility Gate
+
+`analysis.json.feasibility.status` で分岐:
+
+- `infeasible` → Phase 2 に入らず Phase 4 へ直行。`report.json.status="failed"`、`errors=analysis.json.feasibility.blockers`、`next_actions` に代替手段（軽量版 / 別 weights / spec 要件）
+- `degraded` → 警告のみ。Phase 3 の OOM ladder を初手から下げて開始
+- `ok` → 通常進行
+
 ```json
 {
   "repo_name": "string",

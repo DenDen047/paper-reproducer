@@ -96,6 +96,44 @@ Phase 2 はこれを見て `[pypi-dependencies] name = { path, editable = true }
 
 Step 5 の cuda_version と torch version を `cuda-dependency-resolver` の互換マトリクスと照合。矛盾時は `analysis.json.cuda_torch_compat_mismatch = true` + 推奨値を記録。Phase 2 は attempt 1 を推奨値で開始する。
 
-## Step 10: reports/analysis.json 出力
+## Step 10: Feasibility 判定
+
+README / 論文から最低要件を抽出し、ホスト実測値と突合。`analysis.json.feasibility` に記録。
+
+抽出項目（README の "Requirements" / "Hardware" / "Setup" 節、論文の実験設定表）:
+
+| キー | 例 | 抽出先 |
+|---|---|---|
+| `min_vram_gb` | 24 / 40 / 80 | "requires 24GB GPU", "A100 80GB" |
+| `min_disk_gb` | 100 | datasets / weights サイズ合計 |
+| `min_cuda` | "11.8" | "CUDA >= 11.8" |
+| `needs_auth` | true | HuggingFace gated, Google Form |
+
+ホスト実測:
+
+```bash
+nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1  # MiB
+df -BG --output=avail . | tail -1
+nvcc --version 2>/dev/null | grep -oP 'release \K[0-9.]+'
+```
+
+判定:
+
+- `infeasible`: `host_vram < min_vram_gb` かつ CPU fallback 不可 / `host_disk < min_disk_gb` / `needs_auth` かつ対応 env var 未設定 / 必須 DL URL が HEAD で 4xx・5xx
+- `degraded`: `host_vram < min_vram_gb` だが CPU fallback 可 / URL 到達性のみ警告
+- `ok`: 上記いずれにも該当せず
+
+`analysis.json.feasibility`:
+
+```json
+{
+  "status": "ok|degraded|infeasible",
+  "requirements": {"min_vram_gb": 24, "min_disk_gb": null, "min_cuda": "11.8", "needs_auth": false},
+  "host": {"vram_gb": 12, "disk_gb": 200, "cuda": "12.1"},
+  "blockers": ["vram_shortage: need 24, have 12"]
+}
+```
+
+## Step 11: reports/analysis.json 出力
 
 全解析結果を `reports/analysis.json` に書き出す。スキーマは `/reimplement` の定義に従う。

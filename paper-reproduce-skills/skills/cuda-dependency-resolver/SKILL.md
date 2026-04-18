@@ -21,17 +21,21 @@ denkiwakame 氏の Day 17 (pixi で CUDA を管理する) に準拠。
 
 **解決方針**: Pixi で1つに統一する。
 
-## CUDA バージョン決定フロー
+## CUDA ↔ PyTorch 互換マトリクス
 
-```
-1. `reports/analysis.json` の cuda_version を確認
-2. 未特定の場合:
-   - PyTorch バージョンから推定:
-     torch 2.0-2.1 → CUDA 11.8 or 12.1
-     torch 2.2+    → CUDA 12.1 or 12.4
-   - README / Dockerfile から推定
-3. デフォルト: CUDA 12.1 (最も互換性が高い)
-```
+analysis.json で torch と CUDA のバージョンが両方特定できたら、必ずこの表で整合を確認する。矛盾していたら Phase 2 に入る前に Tier 0 として直す。
+
+| torch | 推奨 CUDA | 備考 |
+|---|---|---|
+| < 2.2 | 11.8 | 2.0.x は 12.x 不可。nvidia/label/cuda-11.8.0 を使う |
+| 2.2 – 2.4 | 12.1 or 12.4 | どちらでも可、conda-forge が無難 |
+| ≥ 2.5 | 12.4 or 12.6 | 最新 GPU (Ada/Hopper) は 12.4+ 必須 |
+
+未特定のとき:
+1. torch のバージョンだけ分かる → 上表で CUDA を決める
+2. どちらも不明 → CUDA 12.1 をデフォルト (最も互換性が高い)
+
+**CRITICAL**: torch 2.0.x + CUDA 12.x の組み合わせは build で落ちる。このケースを Phase 2 の attempt 1 で踏むのは pre-flight で防げる (Tier 0)。
 
 ## nvidia channel vs conda-forge channel
 
@@ -47,13 +51,25 @@ denkiwakame 氏の Day 17 (pixi で CUDA を管理する) に準拠。
 ```
 if cuda_version >= 12:
     cuda_channel = "conda-forge"  # 推奨
-    # cuda-version メタパッケージでバージョン指定
-    # c-compiler / cxx-compiler が使える
 elif cuda_version < 12:
-    cuda_channel = "nvidia"
-    # channel label で絞る (例: nvidia/label/cuda-11.8.0)
-    # gcc/gxx を明示的に pixi add する必要あり
+    cuda_channel = "nvidia"        # channel label で絞る
 ```
+
+## チャンネル順の絶対ルール (pytorch を使うとき)
+
+pixi の resolver は `channels = [...]` を**先頭優先**で探す。先頭で torch が見つかれば探索を打ち切るため、順序を間違えると **CPU-only 版 torch が conda-forge から入り、CUDA が使えない状態で「install 成功」** と判定される。
+
+**ルール**: conda pytorch を使うなら `channels` の先頭は必ず `pytorch`。
+
+```toml
+# ✅ 正しい
+channels = ["pytorch", "nvidia", "conda-forge"]
+
+# ❌ 間違い (conda-forge に CPU-only torch が先に見つかって勝つ)
+channels = ["conda-forge", "pytorch", "nvidia"]
+```
+
+PyPI の torch wheel を使う場合 (dep-converter の `extra-index-urls` パターン) はこのルールの対象外。
 
 ## pixi.toml への適用パターン
 

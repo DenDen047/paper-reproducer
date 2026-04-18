@@ -29,8 +29,11 @@ ls pyproject.toml 2>/dev/null
 ls setup.py setup.cfg 2>/dev/null
 
 # Docker
-ls Dockerfile Dockerfile.* docker/Dockerfile 2>/dev/null
+ls Dockerfile Dockerfile.* docker/Dockerfile docker/*.Dockerfile 2>/dev/null
+find . -maxdepth 3 -iname "Dockerfile*" 2>/dev/null
 ```
+
+検索したパス一覧を `analysis.json.dockerfile_search_note` に記録する。
 
 ### Step 2: defaults チャンネル検出
 
@@ -79,7 +82,9 @@ environment.yml / conda.yaml が存在する場合、`channels:` セクション
 
 **CUDA バージョンが複数検出された場合**: 最も明示的な指定（environment.yml > Dockerfile > README）を優先。
 
-### Step 5: submodule 検出
+### Step 5: submodule 検出 (Type 判定の前に必須)
+
+submodule の有無と性質は Type 判定 (Step 3) と `pixi_strategy.needs_divide_and_conquer` に直接影響する。**Step 3 より先に実行し、結果を `analysis.json.submodules_detected[]` に永続化する**。
 
 ```bash
 git submodule status
@@ -92,6 +97,8 @@ git submodule status
   - `setup.py` に `ext_modules` / `CUDAExtension` / `CppExtension` があるか
   - `CMakeLists.txt` が存在するか
   - `.cu` / `.cuh` ファイルが存在するか
+
+`analysis.json.submodules[]` に `{name, path, url, has_setup_py, has_cuda_extension}` を書き出す。Phase 2 の pixi-env-builder はこれを見て `[pypi-dependencies] name = { path, editable = true }` + `[pypi-options] no-build-isolation` を事前に pixi.toml へ書き込む。
 
 ### Step 6: デモコマンド特定
 
@@ -119,6 +126,10 @@ README.md や スクリプトから以下を検出:
 | easy | Type A1/B1/C1 + submodule なし + CUDA 不要 or 明確な CUDA バージョン指定 |
 | medium | Type A2/A3/B2/B3 + submodule あり or CUDA 拡張ビルドが必要 |
 | hard | Type D/E/F, 複数の submodule + C++/CUDA 拡張, 依存情報が不完全 |
+
+### Step 8.5: CUDA↔PyTorch 互換チェック
+
+Step 4 で特定した cuda_version と torch version を `cuda-dependency-resolver` の互換マトリクスと照合し、矛盾があれば `analysis.json.cuda_torch_compat_mismatch` に true + 推奨値を書き出す。Phase 2 がこれを見て attempt 1 を正しい組合せから始める。
 
 ### Step 9: reports/analysis.json 出力
 

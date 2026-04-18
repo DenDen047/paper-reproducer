@@ -23,6 +23,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 
 COPY . /paper-reproduce-skills
 
+RUN mkdir -p /etc/headless_patches \
+    && cp /paper-reproduce-skills/headless_patch.py /etc/headless_patches/headless_patch.py \
+    && chmod 0644 /etc/headless_patches/headless_patch.py
+
 # --dangerously-skip-permissions は root では使えないため非 root ユーザーで実行
 RUN useradd -m -s /bin/bash claude \
     && chown -R claude:claude /paper-reproduce-skills \

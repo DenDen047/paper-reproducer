@@ -85,7 +85,11 @@ grep -n -iE "^##+ (usage|examples?|advanced|batch|inference|demo)" README.md 2>/
 
 各エントリの `source` に根拠明記（例: `README.md #Usage`、`scripts/batch_infer.py`）。
 
-**GUI 依存静的スキャン**: `cv2.imshow` / `plt.show()` / `open3d.visualization` / `tkinter` を直接呼ぶ場合、note に「headless 環境ではデフォルトで描画がスキップされます」と明記。
+**GUI 依存静的スキャン** (`cv2.imshow` / `plt.show()` / `open3d.visualization` / `tkinter`):
+- 該当エントリに `gui_dependency: true` を付与
+- note に「headless 環境では描画スキップ」を明記
+- Auto-verify 時: `PYTHONSTARTUP=/etc/headless_patches/headless_patch.py pixi run ...` で起動
+- patch 適用で exit 0 → `verified: true` + note に「headless patch 適用」
 
 **Auto-verify（任意）**: advanced 先頭 1–2 件を 60s タイムアウトで実行し、exit 0 なら `verified: true` に昇格、失敗なら note に `verify failed: {要約}`。`--help` / 最小入力 / dry-run を優先して OOM を避ける。
 

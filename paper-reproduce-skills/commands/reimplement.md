@@ -242,7 +242,7 @@ while not inference_succeeded:
        Tier 1: auto-fix（pypi add / DL 再試行 / headless patch）→ retry
        Tier 2-config: 設定変更で解決 → retry
        Tier 2-hardware: OOM ladder（Step 5 CPU fallback まで必ず）→ retry
-       Tier 3: レポート記載 → Phase 4（status = partial / failed）
+       Tier 3: レポート記載 → Phase 4（status 判定ルール参照。推論が 1 件も成功していなければ failed）
   8. 失敗時: git reset --hard HEAD~1
 ```
 
@@ -366,6 +366,8 @@ while not inference_succeeded:
   "next_actions": [
     {
       "priority": "high|medium|low",
+      "effort": "low|medium|high",
+      "cost": "free|gpu_upgrade|paid_api|external_data",
       "action": "string",
       "reason": "string",
       "command": "string|null"
@@ -382,10 +384,16 @@ while not inference_succeeded:
 - `next_actions` → Step 1.7 の結果をそのまま。`report.html` とターミナル出力はここから読む
 - `archive_path` → Step 5 で生成されるアーカイブパス（親ディレクトリからの絶対）。Step 2 時点は `null` 仮置き、Step 5 成功時のみ更新
 
-**status 判定**:
-- `success`: pixi install 成功 + 推論成功（出力ファイル生成）
-- `partial`: pixi install 成功 + 推論未実行 or 一部成功
-- `failed`: pixi install 失敗、または推論が根本的に動作しない
+**status 判定**（上から順、最初にマッチしたものを採用）:
+- `failed`:
+  - Phase 1 で `infeasible`
+  - `pixi install` が最終的に失敗
+  - Tier 3 到達 + `phase3 run_inference` 行が全て `result=failed`
+  - 推論成功ゼロ件で全 attempt 消化
+- `partial`: pixi install 成功 + 推論 1 件以上成功 + 一部未達
+- `success`: pixi install 成功 + quickstart 推論が全成功
+
+**MUST NOT**: Tier 3 到達時に `partial` へデフォルト落としする。
 
 **duration_total_s**: `attempts.tsv` 全 duration_s の合算。
 

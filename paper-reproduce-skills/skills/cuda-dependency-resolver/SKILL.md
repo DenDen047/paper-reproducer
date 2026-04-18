@@ -149,6 +149,8 @@ cuda = "11.7"
 | `libcudart.so: cannot open` | PyPI と conda の競合 | 片方に統一 |
 | `unsupported gpu architecture 'compute_90'` | 古い CUDA で新 GPU | CUDA を上げる |
 | `undefined symbol: __cudaRegisterLinkedBinary` | ドライバ不整合 | system-requirements.cuda をドライバに合わせる |
+| DL が 120s 超 / timeout | ミラー遅延・切断 | `--resume-retries 5 --timeout 120` でリトライ。失敗時はミラー切替 (HF: `HF_ENDPOINT=https://hf-mirror.com`) |
+| `nvidia-cudnn-*` DL が 500s 超 | 巨大 wheel + 単一ミラー | conda-forge `cudnn` に切替 |
 
 ## 環境変数設定
 

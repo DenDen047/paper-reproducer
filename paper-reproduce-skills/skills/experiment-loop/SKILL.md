@@ -43,7 +43,10 @@ attempt\tcommit\tphase\taction\tresult\terror_tier\terror_summary\tduration_s
 
 良い例: `action=patch_run_demo_headless, result=success` の次行で `action=add_c_cxx_compiler, result=success`。
 
-悪い例: headless patch は成功しているのに triton エラーで `result=fail` と記録する（主語ずれ）。
+悪い例:
+- 主語ずれ: headless patch 成功を triton エラーで `result=fail` にする
+- patch と検証を 1 行に合成: `action=headless_patch_and_run_demo` → 2 行に分割
+- 複数変更を 1 action に詰める: `add_gcc_and_bump_torch` → 1 変更 1 行
 
 同じ commit SHA を複数行で共有しない。
 

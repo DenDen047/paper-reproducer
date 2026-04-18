@@ -130,9 +130,14 @@ nvcc --version 2>/dev/null | grep -oP 'release \K[0-9.]+'
   "status": "ok|degraded|infeasible",
   "requirements": {"min_vram_gb": 24, "min_disk_gb": null, "min_cuda": "11.8", "needs_auth": false},
   "host": {"vram_gb": 12, "disk_gb": 200, "cuda": "12.1"},
-  "blockers": ["vram_shortage: need 24, have 12"]
+  "blockers": ["vram_shortage: need 24, have 12"],
+  "has_readme_install_section": true
 }
 ```
+
+`has_readme_install_section`:
+- 判定: `grep -niE '^##+ (install|installation|setup|getting started|requirements)' README.md` が 1 件以上ヒット → `true`
+- 用途: Type D/F で依存抽出難度シグナル
 
 ## Step 11: reports/analysis.json 出力
 

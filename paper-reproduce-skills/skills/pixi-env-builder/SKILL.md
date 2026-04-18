@@ -218,8 +218,11 @@ scripts = ["env_vars.sh"]
 
 ### チャンネル設定
 
-- `defaults` は必ず除去（miniconda 由来で混入しがち）
-- conda pytorch 使用時の順序は `cuda-dependency-resolver` 参照（`["pytorch", "nvidia", "conda-forge"]` 固定）
+- `defaults` を除去
+- torch 使用時: `channels = ["pytorch", "nvidia", "conda-forge"]` 固定。他順序禁止
+- conda-forge 先頭禁止: CPU 版 torch 混入 → `torch.cuda.is_available() == False`
+- pypi wheel 経由でも同順序を維持
+- 互換表は `cuda-dependency-resolver` 参照
 
 ### CUDA 統一
 
@@ -240,7 +243,12 @@ scripts = ["env_vars.sh"]
 5. それでも失敗 → git+https://...@{commit_hash} で固定
 ```
 
-pixi では `editable = true` が editable install を表す。**pip コマンドを後付けで走らせない**（setuptools develop と no-build-isolation が競合する）。
+pixi では `editable = true` が editable install を表す。pip コマンドの後付け実行を禁止（setuptools develop と no-build-isolation が競合）。
+
+**`-e` + `--no-build-isolation` 併用禁止**（CUDA 拡張で ImportError 連鎖）:
+- editable 用途: `{ path = "...", editable = true }` のみ。`no-build-isolation` に追加しない
+- host torch 参照が必要: `editable = false` + `[pypi-options] no-build-isolation = ["name"]`
+- 両方必要: `editable = false + no-build-isolation` でビルド → その後 `editable = true` に切替
 
 ### 環境検証（install 成功後）
 

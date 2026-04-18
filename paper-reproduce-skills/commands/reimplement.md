@@ -45,6 +45,31 @@ allowed-tools: Bash Read Write Edit Glob Grep Agent
 7. `.gitignore` に `reports/attempts.tsv` を追加
 8. `ls` で依存ファイル一覧を取得（Phase 1 の事前情報）
 
+### Pre-flight ガード (Phase 1 に進む前に必ず通す)
+
+ここで失敗したら attempt 番号を消費せずに直して再開する (Tier 0)。ここを省くと Phase 2 の attempt 1 が構造的に死ぬ。
+
+```bash
+# 1. git identity — 未設定なら commit で "Author identity unknown" で死ぬ
+git config user.email >/dev/null 2>&1 || git config user.email "claude@anthropic.com"
+git config user.name  >/dev/null 2>&1 || git config user.name  "Claude"
+
+# 2. キャッシュ書き込み権限 — /home/claude/.cache が読み取り専用のケースあり
+for d in "$HOME/.cache" /tmp; do [ -w "$d" ] || echo "WARN: $d not writable"; done
+# torch/HF/matplotlib が .cache に書けない環境では env で /tmp に逃がす:
+#   export HF_HOME=/tmp/hf TORCH_HOME=/tmp/torch MPLCONFIGDIR=/tmp/mpl
+
+# 3. ネットワーク到達 — pypi と huggingface を 5 秒で head 確認
+curl -sfm 5 -I https://pypi.org/simple/ >/dev/null || echo "WARN: pypi unreachable"
+curl -sfm 5 -I https://huggingface.co       >/dev/null || echo "WARN: hf unreachable"
+
+# 4. host libc (open3d 0.19+ は 2.31 以上必須)
+ldd --version | head -1
+
+# 5. CUDA↔PyTorch 互換 — analysis.json 出力後に cross-check (cuda-dependency-resolver 参照)
+#    analysis.json.cuda_torch_compat_mismatch=true なら Phase 2 attempt 1 で推奨値に修正済みで始める
+```
+
 ---
 
 ## Phase 1: リポジトリ解析
@@ -76,9 +101,16 @@ reports/analysis.json のスキーマ:
       "name": "string",
       "path": "string",
       "url": "string",
+      "has_setup_py": "boolean",
       "has_cuda_extension": "boolean"
     }
   ],
+  "dockerfile_search_note": "string|null",
+  "cuda_torch_compat_mismatch": {
+    "detected": "boolean",
+    "recommended_cuda": "string|null",
+    "recommended_torch": "string|null"
+  },
   "needs_no_build_isolation": ["string"],
   "demo_commands": ["string"],
   "model_download": {
@@ -122,14 +154,15 @@ reports/analysis.json のスキーマ:
 while not succeeded:
   1. START_TIME=$(date +%s)  <- 省略禁止
   2. pixi.toml を生成/修正
-  3. git add pixi.toml && git commit -m "attempt #{n}: {action}"
-  4. pixi install 2>&1 | tee build.log
-  5. END_TIME=$(date +%s) && DURATION=$((END_TIME - START_TIME))  <- 省略禁止
-  6. reports/attempts.tsv にログ追記（成功でも失敗でも必ず記録）  <- 省略禁止
-  7. 結果判定:
-     成功 -> advance + 環境検証 (python -c "import torch; print(torch.cuda.is_available())")
-     失敗 -> diagnose + classify (experiment-loop スキルの 3-Tier 分類に従う)
-  8. 失敗時: git reset --hard HEAD~1
+  3. pixi install --dry-run  <- syntax / resolvability を事前チェック (Tier 0 相当、失敗なら #2 に戻る)
+  4. git add pixi.toml && git commit -m "attempt #{n}: {action}"
+  5. pixi install 2>&1 | tee build.log
+  6. END_TIME=$(date +%s) && DURATION=$((END_TIME - START_TIME))  <- 省略禁止
+  7. reports/attempts.tsv にログ追記（成功でも失敗でも必ず記録）  <- 省略禁止
+  8. 結果判定:
+     成功 -> 環境検証 (torch.cuda.is_available() == True が必須、False なら Tier 0 で channels 順を修正)
+     失敗 -> diagnose + classify (experiment-loop の 4-Tier 分類に従う)
+  9. 失敗時: git reset --hard HEAD~1
 ```
 
 **CRITICAL: ステップ1, 5, 6 は成功・失敗を問わず毎回必ず実行する。reports/attempts.tsv への記録漏れは禁止。**
@@ -162,7 +195,32 @@ while not succeeded:
 
 ### Step 2: Headless GUI 対策
 
-Docker コンテナ内は headless 環境。experiment-loop スキルの「Headless 環境対策」セクションに従って、cv2/open3d/matplotlib のモンキーパッチを適用。
+Docker コンテナ内は headless 環境。`/etc/headless_patches/_headless_patch.py` をそのままコピーまたは exec し、cv2/open3d/matplotlib のモンキーパッチを当てる（Docker image に事前配置済み）。見当たらない場合のみ experiment-loop スキルの「Headless 環境対策」セクションの雛形から生成する。
+
+### Step 2.5: Telemetry 計測
+
+推論実行時に以下を取得し `reports/telemetry.json` に書き出す（Phase 4 の report.json が読み取る）:
+
+```python
+import time, torch, json, subprocess
+torch.cuda.reset_peak_memory_stats()
+load_t0 = time.time()
+model = ...  # モデルロード
+load_t1 = time.time()
+inf_t0 = time.time()
+output = model(input)
+inf_t1 = time.time()
+device = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
+json.dump({
+  "peak_vram_mb": int(torch.cuda.max_memory_allocated() / 1e6) if torch.cuda.is_available() else None,
+  "model_load_time_s": round(load_t1 - load_t0, 2),
+  "inference_fps": round(1.0 / (inf_t1 - inf_t0), 2) if (inf_t1 > inf_t0) else None,
+  "device": device,
+  "precision": str(next(model.parameters()).dtype) if hasattr(model, 'parameters') else None,
+}, open("reports/telemetry.json", "w"), indent=2)
+```
+
+デモが独自スクリプトでモデル変数を取れない場合は wrapper で `torch.cuda.max_memory_allocated()` と実行時間だけでも記録する。
 
 ### Step 3: デモ/推論スクリプト実行 (Experiment Loop)
 
@@ -176,9 +234,11 @@ while not inference_succeeded:
   6. reports/attempts.tsv にログ追記  <- 省略禁止
   7. 結果判定:
      成功（出力ファイルが生成された）-> Phase 4 へ
-     失敗 -> experiment-loop スキルの 3-Tier 分類に従う:
-       Tier 1: auto-fix -> retry
-       Tier 2: OOM fallback (5段階) -> retry
+     失敗 -> experiment-loop スキルの 4-Tier 分類に従う:
+       Tier 0: pre-flight 違反 (キャッシュ perm / git identity 等) -> その場で修正、attempt 消費しない
+       Tier 1: auto-fix (pypi add / download 再試行 / headless patch) -> retry
+       Tier 2-config: 設定変更で解決可能 (pixi.toml 編集 / 不要 dep 除去) -> retry
+       Tier 2-hardware: OOM ladder (Step 5 CPU fallback まで必ず試す) -> retry
        Tier 3: report に記載 -> Phase 4 へ（status = partial or failed）
   8. 失敗時: git reset --hard HEAD~1
 ```
@@ -230,9 +290,11 @@ while not inference_succeeded:
 [
   {
     "priority": "high|medium|low",
-    "action": "string",        // 何をすべきか（命令形、1 文）
-    "reason": "string",        // なぜそれが次か（1–2 文）
-    "command": "string|null"   // そのまま貼れば動くコマンド。該当なければ null
+    "effort": "low|medium|high",   // このアクションを実行するのにかかる手間
+    "cost": "free|gpu_upgrade|paid_api|external_data",  // 追加コストの種類
+    "action": "string",            // 何をすべきか（命令形、1 文）
+    "reason": "string",            // なぜそれが次か（1–2 文）
+    "command": "string|null"       // そのまま貼れば動くコマンド。該当なければ null
   }
 ]
 ```
@@ -241,6 +303,7 @@ while not inference_succeeded:
 - 各項目は独立して実行可能にする（前後依存が強い場合は 1 項目にまとめる）
 - `action` は具体的に書く（×「環境を修正する」／○「`pixi add --pypi xformers==0.0.23` を追加してリビルド」）
 - 結果が何もなくても空配列 `[]` ではなく最低 1 件は出す（`success` の場合でも「自分のデータで試す」等を入れる）
+- **priority と cost を混同しない**: "24GB GPU で full-res" は技術的には high だが `cost=gpu_upgrade` なので現手元では実行できない。**今ここで動かせるタスクを high に置く**（DVD 実測: 現 GPU で試せる低解像度検証を medium にして GPU アップグレードを high にしたのは誤り）
 - 優先度は `high` が 0–2 件、過剰に high を付けない
 
 ### Step 2: reports/report.json 生成（機械可読）
@@ -257,6 +320,13 @@ while not inference_succeeded:
   "pixi_toml_hash": "string",
   "inference_output": "string|null",
   "errors": ["string"],
+  "telemetry": {
+    "peak_vram_mb": "number|null",     // torch.cuda.max_memory_allocated() / 1e6
+    "model_load_time_s": "number|null",
+    "inference_fps": "number|null",
+    "device": "string|null",
+    "precision": "string|null"          // "fp32" | "fp16" | "bf16" | "cpu"
+  },
   "usage": {
     "quickstart": {
       "description": "string",
@@ -323,7 +393,34 @@ while not inference_succeeded:
 
 ### Step 3: reports/report.html 生成（目視確認用）
 
-**templates/report.html テンプレートを参照して生成する。** テンプレートと同じディレクトリにある `templates/view.sh` も `reports/view.sh` として同時にコピーし実行権限を付与する（`chmod +x reports/view.sh`）。`view.sh` は `python3 -m http.server` を起動して `report.html` を HTTP 経由で開けるようにするためのヘルパで、3D ビューワ (CORS 対策) を動かすのに必要。
+**必ず `templates/report.html` をそのままコピーし、`{{...}}` プレースホルダーだけを置換する。** HTML/CSS を自分で書き直したり、独自のレイアウトを作ったりしてはいけない。
+
+```bash
+cp /paper-reproduce-skills/templates/report.html reports/report.html
+cp /paper-reproduce-skills/templates/view.sh     reports/view.sh
+chmod +x reports/view.sh
+# 以降、sed / Python で {{PLACEHOLDER}} を実値に置換
+```
+
+**禁止事項 (絶対)**:
+- `<style>` セクションの中身を変える
+- `<title>` の文面を `Reimplement Report: {{REPO_NAME}}` から変える
+- `<html lang="en">` を他の言語に変える
+- プレースホルダー名を追加・削除する
+- 新しいセクション (`<h2>`, `<div>`) を足す
+
+置換後の `reports/report.html` は先頭 6 行が以下と一致すること (Assertion):
+
+```
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reimplement Report: {REPO_NAME}</title>
+```
+
+`view.sh` は `python3 -m http.server` を起動して `report.html` を HTTP 経由で開けるヘルパ（3D ビューワの CORS 対策用）。
 
 テンプレート内のプレースホルダーを実際の値で置換する:
 
@@ -384,7 +481,7 @@ null の場合:
 <p class="usage-empty">API としての利用想定は見つかりませんでした。Quickstart のスクリプト直接呼び出しを推奨。</p>
 ```
 
-**HTML エスケープ必須**: `command` / `sample_code` / 各 `description` / `note` 中の `<`, `>`, `&`, `"`, `'` は必ずエスケープする。
+(HTML エスケープは下の「共通」に記載)
 
 #### samples ブロックのレンダリング規則
 
@@ -459,7 +556,7 @@ JavaScript 不要、HTML5 `<video>` タグのみで再生。
 <p class="usage-empty">サンプルを取得できませんでした{note ? '（' + note + '）' : ''}。</p>
 ```
 
-**HTML エスケープ必須**: `label`, `note` 中の `<`, `>`, `&`, `"`, `'` をエスケープ。`src` のパスは HTML 属性値としてエスケープ（`"` は `&quot;`）。
+(HTML エスケープは下の「共通」に記載)
 
 #### next_actions ブロックのレンダリング規則
 
@@ -483,7 +580,9 @@ JavaScript 不要、HTML5 `<video>` タグのみで再生。
 <p class="usage-empty">特筆すべき次のアクションはありません。</p>
 ```
 
-**HTML エスケープ必須**: `action`, `reason`, `command` 中の `<`, `>`, `&`, `"`, `'` をエスケープ。
+#### 共通: HTML エスケープ
+
+すべてのブロック (usage / samples / next_actions) でテキスト挿入時は `<`, `>`, `&`, `"`, `'` をエスケープする。属性値 (`src` 等) は `"` → `&quot;`。
 
 ### Step 4: 成果物の確認
 
@@ -491,70 +590,38 @@ Phase 0 の「成果物レイアウト」のとおりに全ファイルが揃っ
 
 ### Step 5: 最終コミットとアーカイブ
 
-**ローカルアーカイブとしてリポジトリ外に保存**し、後から自由に展開・検証できるようにする。
+リポジトリ外のローカルアーカイブに状態を保存する。
 
-#### Step 5.1: 未コミット変更の最終コミット
-
-Phase 4 で生成したレポート類 (`reports/report.json`, `reports/report.html`, `reports/samples/...`) はまだワーキングツリーに残っているはず。これらを 1 コミットにまとめる:
-
+5.1 レポート類を 1 コミットに:
 ```bash
-git status --porcelain
-# 何か出たら:
+git status --porcelain  # 何か出たら:
 git add reports/ pixi.toml pixi.lock
 git commit -m "chore: finalize reproduction reports"
 ```
+`reports/attempts.tsv` は `.gitignore` 対象外、クリーンなら空コミットを作らない。
 
-`reports/attempts.tsv` は `.gitignore` 対象なので対象外。既にクリーンなら何もしない（空コミットは作らない）。
-
-#### Step 5.2: アーカイブ作成（`status == "success"` の場合のみ）
-
-`reports/report.json` の `status` フィールドを確認し、`"success"` の場合のみ以下を実行する。`partial` / `failed` の場合は Step 5.2 をスキップし、`archive_path` を `null` のままにする。
-
+5.2 アーカイブ作成 (`status == "success"` のみ、他はスキップ → `archive_path=null`):
 ```bash
 REPO_NAME=$(basename "$PWD")
 SHORT_SHA=$(git rev-parse --short HEAD)
 ARCHIVE_PATH="$(cd .. && pwd)/${REPO_NAME}-${SHORT_SHA}.tar.gz"
-
-git archive \
-  --format=tar.gz \
-  --prefix="${REPO_NAME}-${SHORT_SHA}/" \
-  HEAD \
-  -o "${ARCHIVE_PATH}"
-
-ls -lh "${ARCHIVE_PATH}"
+git archive --format=tar.gz --prefix="${REPO_NAME}-${SHORT_SHA}/" HEAD -o "${ARCHIVE_PATH}"
 ```
+`git archive HEAD` は追跡ファイルのみ含む (attempts.tsv / .pixi / モデル重みは含まない)。親ディレクトリに書けない場合は `/tmp/${REPO_NAME}-${SHORT_SHA}.tar.gz` にフォールバック。
 
-**挙動の注意:**
-- `git archive HEAD` は**追跡ファイルのみ**をアーカイブする。`.gitignore` 対象のファイル（`reports/attempts.tsv`, `.pixi/`, ダウンロード済みモデル重みなど）は含まれない。
-- モデル重みはアーカイブ展開後に Phase 3 Step 1 の手順で再ダウンロードする前提。これは意図的（アーカイブサイズを小さく保つため）。
-- 親ディレクトリに書き込めない場合は `/tmp/${REPO_NAME}-${SHORT_SHA}.tar.gz` にフォールバックする。
-- アーカイブは `{REPO_NAME}-{SHORT_SHA}/` というプレフィックスを持ち、展開すると同名ディレクトリが作られる。
-
-#### Step 5.3: report.json の archive_path 更新
-
-アーカイブ作成に成功したら、`reports/report.json` の `archive_path` フィールドを実際のパスに書き換えて新規コミットする:
-
+5.3 `report.json.archive_path` を書き換えて新規コミット (amend 禁止):
 ```bash
-# report.json を編集して archive_path を設定
-git add reports/report.json
-git commit -m "chore: record archive path"
+git add reports/report.json && git commit -m "chore: record archive path"
 ```
+アーカイブ自体の内部 `report.json` は `archive_path=null` だがワーキングツリー側は最新値なので Step 6 の出力に実害なし。
 
-**注意事項:**
-- `--amend` は使わない（核心原則「Git 運用ルール」参照）。必ず新規コミットで追記する。
-- 結果として**アーカイブファイル自体は Step 5.1 時点の HEAD を指し、その中の `report.json` は `archive_path: null`** となる。Step 6 のターミナル出力はワーキングツリーの `report.json` を読むので実害はない。
-
-#### Step 5.4: アーカイブをスキップした場合
-
-`status != "success"` の場合、アーカイブは作らず、代わりにターミナル (Step 6) で以下を明示する:
-
-> ⚠️ アーカイブは status=success 時のみ作成されます。現在の status は `{status}` です。
+5.4 skip 時: Step 6 で「⚠️ アーカイブは status=success 時のみ作成されます。現在は `{status}`」を明示。
 
 ### Step 6: Next Actions のターミナル出力
 
-`/reimplement` の最後に、`reports/report.json` の `next_actions` 配列と `archive_path` をユーザー向けメッセージとしてターミナルに整形出力する。ユーザーはその場で次のアクションを選んで Claude Code に依頼できる。
+`/reimplement` の最後に `report.json` の `next_actions` / `archive_path` / `status` をそのまま読み出してターミナル出力する (再生成・再計算は行わない)。
 
-**出力フォーマット:**
+出力フォーマット:
 
 ```
 ## Reproduction Complete
@@ -575,35 +642,25 @@ Archive: {archive_path or "(not created; status != success)"}
    ...
 ```
 
-**原則:**
-- ソースは `reports/report.json` の `next_actions` / `archive_path` / `status` を読み出すこと。ここで新規に生成・計算し直さない。
-- `next_actions` が空なら Next Actions ブロックの代わりに "再現は完了しました。特筆すべき次のアクションはありません。" を出す。
-- `command` が null の項目では `$ {command}` 行を省略する。
-- `archive_path` が null の場合、代わりに理由（`status != success` など）を表示する。
-- Phase 4 が完了し Step 5 のアーカイブも終わった**最後**に出力する。途中の Phase で出力しない。
+- `next_actions` が空 → 「再現は完了しました。特筆すべき次のアクションはありません。」
+- `command` が null の項目は `$ {command}` 行を省略
+- `archive_path` が null なら代わりに理由を表示
+- 出力タイミングは Step 5 完了後の最後のみ
 
 ---
 
 ## 核心原則
 
-### Git 運用ルール（全 Phase 共通）
+### Git 運用ルール (全 Phase 共通)
 
-- **`git commit --amend` は全 Phase で禁止**。書き換え対象が最終コミットであっても、過去コミットであっても、例外なく使わない。履歴を破壊すると archive が参照している SHA / attempts.tsv に記録された SHA と実際のコミットがズレるため。修正を追加したくなったら必ず**新しいコミットを積む**（例: `chore: fix gitignore anchor for reports/samples/output`）。
-- **`git reset --hard HEAD~1` は Experiment Loop の失敗復旧専用**。Phase 2/3 の試行が失敗した直後にのみ使う（`experiment-loop` スキル参照）。それ以外の文脈（コミット済みの過去作業を巻き戻す等）では禁止。
-- **`git push --force` は禁止**。ローカル作業ブランチでも remote への強制 push は行わない。
-- **`git commit` のたびに START_TIME / END_TIME を記録し、`reports/attempts.tsv` に 1 行追記する**（Phase 2/3 の Experiment Loop ルール。成功・失敗を問わず毎回実行）。
-- **コミットメッセージは命令形**のシンプルな英語で 1 行目 72 文字以内（例: `attempt #3: bump libc to 2.31 for open3d`）。
+- `git commit --amend` は全 Phase で禁止。履歴を破壊すると archive の SHA と attempts.tsv の SHA がズレる。修正は必ず新しいコミットを積む
+- `git reset --hard HEAD~1` は Experiment Loop の失敗復旧専用 (experiment-loop 参照)
+- `git push --force` 禁止
+- 各 `git commit` ごとに START_TIME/END_TIME を測り attempts.tsv に 1 行追記 (成功・失敗問わず)
+- コミットメッセージは命令形・英語・72 文字以内 (例: `attempt #3: bump libc to 2.31 for open3d`)
 
 ### NEVER STOP
-- 環境構築に失敗しても止まらない — Tier 分類に従って自律的に修正・再試行
-- 推論に失敗しても止まらない — OOM フォールバック -> パラメータ変更 -> CPU fallback
-- 唯一の停止条件: 全 Phase 完了、または人間による手動停止
+失敗しても止まらない。Tier 分類に従って自律的に修正・再試行。唯一の停止条件は全 Phase 完了、または人間による手動停止。
 
-### denkiwakame ワークフロー準拠
-- **Divide-and-Conquer**: submodule は最初に除外し、ベース構築後に1つずつ追加
-- **no-build-isolation**: PEP517 違反の submodule (C++/CUDA 拡張) に必須
-- **CUDA は1つに統一**: wheel/conda/docker/host の4つが混在するサバンナを整理
-- **defaults チャンネル除去**: miniconda 由来で混入しがちだが有償かつ不要
-- **conda-forge を基本チャンネル**: ただし元 repo が conda pytorch を使う場合は pytorch/nvidia チャンネルも許容
-- **gcc/gxx も pixi 管理下に**: nvidia channel の CUDA では gcc/g++ が外側から見えない
-- **system-requirements.cuda**: ホストドライバ要件の申告であり、pixi 環境内の CUDA バージョンとは別物
+### 依存関係まわりの原則
+`pixi-env-builder` / `cuda-dependency-resolver` / `dep-converter` を参照。Divide-and-Conquer、no-build-isolation、チャンネル順、CUDA 統一はそれらのスキル内で定義されており、ここでは重複して書かない。

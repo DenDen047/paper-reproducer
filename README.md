@@ -10,12 +10,14 @@ CV 論文の GitHub リポジトリを、Claude Code エージェントで全自
 
 ## Install
 
+前提ツール: **Docker**, **Claude Code**, **NVIDIA Container Toolkit**
+
+※ **NVIDIA Container Toolkit** が無くても起動するが、CV論文は大半がGPU必須なので入れておくことを推奨。
+
 ```bash
 git clone https://github.com/DenDen047/paper-reproducer.git
 cd paper-reproducer
 ```
-
-Requirements: Docker, NVIDIA Container Toolkit (GPU 使用時), Claude 認証 (API key or サブスク)
 
 ## Quick Start
 

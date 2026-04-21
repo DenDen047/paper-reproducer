@@ -171,14 +171,10 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
     "$IMAGE_NAME"
 fi
 
-# ---------- 並列バッチモード ----------
-BATCH_NAME="${BATCH_NAME:-batch-$(date +%Y%m%d-%H%M%S)}"
-BATCH_DIR="$WORKSPACE_DIR/$BATCH_NAME"
-LOGS_DIR="$BATCH_DIR/logs"
-mkdir -p "$LOGS_DIR"
+# ---------- 並列バッチモード (tmux) ----------
+command -v tmux >/dev/null 2>&1 || die "tmux not found on PATH (required for batch mode)"
 
-log "batch dir: $BATCH_DIR"
-log "launching ${#URLS[@]} containers in parallel (GPU count=$NUM_GPUS)"
+SESSION_NAME="paper-reproduce-$(date +%H%M%S)"
 
 # 全 repo を clone
 REPO_NAMES=()
@@ -192,11 +188,10 @@ if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
   ENV_FLAGS+=(-e ANTHROPIC_API_KEY)
 fi
 
-# 1 コンテナを起動するヘルパー
-launch_one() {
+# docker run コマンドを組み立てるヘルパー
+docker_cmd_for() {
   local idx="$1"
   local name="${REPO_NAMES[idx]}"
-  local logfile="$LOGS_DIR/$name.log"
 
   local gpu_env=()
   if (( NUM_GPUS > 0 )); then
@@ -204,10 +199,7 @@ launch_one() {
     gpu_env=(-e "CUDA_VISIBLE_DEVICES=$gpu_idx")
   fi
 
-  log "[$name] launching (log: $logfile)"
-
-  # stdin は /dev/null、stdout/stderr はログファイルへ
-  docker run --rm \
+  echo docker run --rm -it \
     -v "$WORKSPACE_DIR:/workspaces" \
     -v "$HOME/.claude:/home/claude/.claude" \
     "${CLAUDE_JSON_MOUNT[@]}" \
@@ -217,77 +209,31 @@ launch_one() {
     "${GPU_FLAGS[@]}" \
     "${gpu_env[@]}" \
     "${ENV_FLAGS[@]}" \
-    "$IMAGE_NAME" \
-    --print --prompt "/reimplement" \
-    </dev/null >"$logfile" 2>&1
+    "$IMAGE_NAME"
 }
 
-# 全コンテナをバックグラウンドで一括起動
-for i in "${!REPO_NAMES[@]}"; do
-  launch_one "$i" &
+# 最初の repo で tmux セッションを作成
+log "creating tmux session: $SESSION_NAME"
+tmux new-session -d -s "$SESSION_NAME" -n "${REPO_NAMES[0]}" \
+  "$(docker_cmd_for 0)"
+
+# 残りの repo を tmux ウィンドウとして追加
+for i in $(seq 1 $(( ${#REPO_NAMES[@]} - 1 ))); do
+  tmux new-window -t "$SESSION_NAME" -n "${REPO_NAMES[i]}" \
+    "$(docker_cmd_for "$i")"
 done
 
-log "all ${#REPO_NAMES[@]} containers launched; waiting for completion..."
-wait
-log "all containers finished"
+log "launched ${#REPO_NAMES[@]} containers in tmux session: $SESSION_NAME"
+log "inside each Claude Code, run: /reimplement"
+log "tmux cheat sheet:"
+log "  Ctrl+b → n  next window"
+log "  Ctrl+b → p  previous window"
+log "  Ctrl+b → 0  jump to window 0"
+log "  Ctrl+b → d  detach (containers keep running)"
 
-# --- summary.json 生成 ---
-SUMMARY="$BATCH_DIR/summary.json"
-log "generating summary: $SUMMARY"
-
-python3 - "$WORKSPACE_DIR" "$SUMMARY" "${REPO_NAMES[@]}" <<'PYEOF'
-import json
-import os
-import sys
-from datetime import datetime, timezone
-
-workspace_dir = sys.argv[1]
-summary_path = sys.argv[2]
-repos = sys.argv[3:]
-
-entries = []
-for name in repos:
-    report = os.path.join(workspace_dir, name, "reports", "report.json")
-    entry = {"repo_name": name}
-    if os.path.exists(report):
-        try:
-            with open(report, encoding="utf-8") as f:
-                j = json.load(f)
-            entry.update({
-                "status": j.get("status"),
-                "dep_type": j.get("dep_type"),
-                "attempts": j.get("total_attempts", 0),
-                "duration_s": j.get("duration_total_s", 0),
-                "archive_path": j.get("archive_path"),
-            })
-        except Exception as e:
-            entry.update({"status": "unreadable", "error": str(e)})
-    else:
-        entry["status"] = "no_report"
-    entries.append(entry)
-
-def count(status):
-    return sum(1 for e in entries if e.get("status") == status)
-
-summary = {
-    "timestamp": datetime.now(timezone.utc).isoformat(),
-    "total_repos": len(entries),
-    "success": count("success"),
-    "partial": count("partial"),
-    "failed": count("failed"),
-    "total_attempts": sum(e.get("attempts", 0) or 0 for e in entries),
-    "total_duration_s": sum(e.get("duration_s", 0) or 0 for e in entries),
-    "repos": entries,
-}
-
-os.makedirs(os.path.dirname(summary_path), exist_ok=True)
-with open(summary_path, "w", encoding="utf-8") as f:
-    json.dump(summary, f, indent=2, ensure_ascii=False)
-
-print(f"[summary] {summary['success']} success / "
-      f"{summary['partial']} partial / "
-      f"{summary['failed']} failed "
-      f"(total {summary['total_repos']} repos)")
-PYEOF
-
-log "done. batch dir: $BATCH_DIR"
+# tmux にアタッチ
+if [[ -n "${TMUX:-}" ]]; then
+  exec tmux switch-client -t "$SESSION_NAME"
+else
+  exec tmux attach -t "$SESSION_NAME"
+fi

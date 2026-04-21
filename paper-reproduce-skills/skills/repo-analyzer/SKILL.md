@@ -7,7 +7,7 @@ allowed-tools: Bash Read Glob Grep Write
 
 # repo-analyzer: リポジトリ解析 + 6-Type 判定
 
-CWD のリポジトリを解析し、Pixi 環境構築に必要な情報を `reports/analysis.json` に書き出す。`reports/` は Phase 0 で作成済み。
+CWD を解析し `reports/analysis.json` に出力。`reports/` は Phase 0 で作成済み。
 
 ## Step 1: 依存ファイル検出
 
@@ -18,7 +18,7 @@ ls pyproject.toml setup.py setup.cfg 2>/dev/null
 find . -maxdepth 3 -iname "Dockerfile*" 2>/dev/null
 ```
 
-検索パスは `analysis.json.dockerfile_search_note` に記録。
+Dockerfile の検索パスは `analysis.json.dockerfile_search_note` に記録。
 
 ## Step 2: defaults チャンネル検出
 
@@ -30,36 +30,38 @@ environment.yml / conda.yaml の `channels:` に `defaults` があれば `pixi_s
 git submodule status
 ```
 
-各 submodule について `analysis.json.submodules[]` に記録:
+各 submodule を `analysis.json.submodules[]` に記録:
 
-- SSH URL (`git@github.com:`) は HTTPS に変換
+- SSH URL (`git@github.com:`) → HTTPS に変換
 - `has_setup_py`: `setup.py` / `pyproject.toml` の有無
 - `has_cuda_extension`: `ext_modules` / `CUDAExtension` / `CppExtension` / `CMakeLists.txt` / `.cu` / `.cuh` のいずれか
 
-Phase 2 はこれを見て `[pypi-dependencies] name = { path, editable = true }` と `no-build-isolation` を事前注入する。
+Phase 2 で `[pypi-dependencies] name = { path, editable = true }` と `no-build-isolation` を注入。
 
 ## Step 4: 6-Type 判定
 
-優先順位: A > C > B > E > D > F。最も情報量の多いファイルで決定。
+優先順位: A > C > B > E > D > F。
 
 | Type | 条件 |
 |---|---|
-| A1 | environment.yml のみ、submodule の pip deps 行なし |
-| A2 | environment.yml に submodule pip deps 行あり、または submodule 存在 |
-| A3 | environment.yml + requirements.txt 併存 |
+| A1 | environment.yml のみ、submodule pip deps 行なし |
+| A2 | environment.yml + submodule 存在、または pip deps 行あり |
+| A3 | environment.yml + requirements*.txt 併存 |
 | C1 | pyproject.toml + `[build-system]` = setuptools/hatch/flit |
 | C2 | pyproject.toml + `[tool.poetry]` |
 | C3 | pyproject.toml + `[tool.pdm]` |
-| B1 | requirements.txt 単独 |
-| B2 | requirements.txt + setup.py |
-| B3 | 複数の `requirements_*.txt` |
+| B1 | `requirements*.txt` 1ファイルのみ、setup.py なし（ファイル名問わず） |
+| B2 | `requirements*.txt` 1ファイル + setup.py（ルートまたはサブモジュール） |
+| B3 | `requirements*.txt` 複数ファイル |
 | E1 | setup.py 単独 |
 | E2 | setup.cfg 単独 |
-| E3 | setup.py + requirements.txt（B にフォールバック） |
+| E3 | setup.py + requirements*.txt（B にフォールバック） |
 | D1 | Dockerfile + pip install |
 | D2 | Dockerfile + conda install |
 | D3 | Dockerfile + apt + pip 混在 |
 | F | 依存ファイル皆無 |
+
+B2 判定時、サブモジュールの setup.py は Step 3 の `has_setup_py` を参照。
 
 ## Step 5: CUDA / PyTorch バージョン特定
 
@@ -71,7 +73,7 @@ Phase 2 はこれを見て `[pypi-dependencies] name = { path, editable = true }
 4. setup.py / pyproject.toml
 5. ソース中のバージョンチェック
 
-複数検出時は environment.yml > Dockerfile > README を優先。
+複数検出時の優先順位: environment.yml > Dockerfile > README。
 
 ## Step 6: デモコマンド特定
 
@@ -94,11 +96,11 @@ Phase 2 はこれを見て `[pypi-dependencies] name = { path, editable = true }
 
 ## Step 9: CUDA↔PyTorch 互換チェック
 
-Step 5 の cuda_version と torch version を `cuda-dependency-resolver` の互換マトリクスと照合。矛盾時は `analysis.json.cuda_torch_compat_mismatch = true` + 推奨値を記録。Phase 2 は attempt 1 を推奨値で開始する。
+Step 5 の cuda_version と torch version を互換マトリクスと照合。矛盾時は `analysis.json.cuda_torch_compat_mismatch = true` + 推奨値を記録。Phase 2 の attempt 1 は推奨値で開始。
 
 ## Step 10: Feasibility 判定
 
-README / 論文から最低要件を抽出し、ホスト実測値と突合。`analysis.json.feasibility` に記録。
+README / 論文から最低要件を抽出しホスト実測値と突合。`analysis.json.feasibility` に記録。
 
 抽出項目（README の "Requirements" / "Hardware" / "Setup" 節、論文の実験設定表）:
 
@@ -117,11 +119,11 @@ df -BG --output=avail . | tail -1
 nvcc --version 2>/dev/null | grep -oP 'release \K[0-9.]+'
 ```
 
-判定:
+判定基準:
 
-- `infeasible`: `host_vram < min_vram_gb` かつ CPU fallback 不可 / `host_disk < min_disk_gb` / `needs_auth` かつ対応 env var 未設定 / 必須 DL URL が HEAD で 4xx・5xx
-- `degraded`: `host_vram < min_vram_gb` だが CPU fallback 可 / URL 到達性のみ警告
-- `ok`: 上記いずれにも該当せず
+- `infeasible`: VRAM 不足かつ CPU fallback 不可 / ディスク不足 / 認証未設定 / 必須 URL が 4xx・5xx
+- `degraded`: VRAM 不足だが CPU fallback 可 / URL 到達性のみ警告
+- `ok`: 上記に非該当
 
 `analysis.json.feasibility`:
 
@@ -135,10 +137,8 @@ nvcc --version 2>/dev/null | grep -oP 'release \K[0-9.]+'
 }
 ```
 
-`has_readme_install_section`:
-- 判定: `grep -niE '^##+ (install|installation|setup|getting started|requirements)' README.md` が 1 件以上ヒット → `true`
-- 用途: Type D/F で依存抽出難度シグナル
+`has_readme_install_section`: `grep -niE '^##+ (install|installation|setup|getting started|requirements)' README.md` が 1 件以上ヒットで `true`。Type D/F の依存抽出難度シグナル。
 
 ## Step 11: reports/analysis.json 出力
 
-全解析結果を `reports/analysis.json` に書き出す。スキーマは `/reimplement` の定義に従う。
+全解析結果を `reports/analysis.json` に出力。スキーマは `/reimplement` の定義に従う。

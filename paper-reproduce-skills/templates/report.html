@@ -46,6 +46,11 @@
   .priority-high { background: var(--failed); }
   .priority-medium { background: var(--partial); }
   .priority-low { background: var(--muted); }
+  #file-protocol-warning { display: none; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+  #file-protocol-warning strong { display: block; margin-bottom: 0.5rem; color: #92400e; font-size: 0.95rem; }
+  #file-protocol-warning p { margin: 0.25rem 0; font-size: 0.85rem; color: #78350f; }
+  #file-protocol-warning pre { margin: 0.5rem 0; font-size: 0.8rem; }
+  #file-protocol-warning code { color: inherit; }
   .samples .sample-item { margin-bottom: 1.5rem; }
   .samples .sample-item:last-child { margin-bottom: 0; }
   .samples h4 { font-size: 0.9rem; margin: 0 0 0.5rem; color: var(--muted); font-weight: 600; }
@@ -63,11 +68,19 @@
     .sample-grid-2, .sample-grid-3 { grid-template-columns: 1fr; }
     .viewer-3d { height: 320px; }
   }
-  pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; line-height: 1.5; }
+  pre { background: #1e293b; color: #e2e8f0; padding: 1rem; padding-right: 4.5rem; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; line-height: 1.5; position: relative; }
+  .copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; background: #334155; border: 1px solid #475569; color: #e2e8f0; padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.7rem; font-family: inherit; cursor: pointer; opacity: 0.55; transition: opacity 0.15s, background 0.15s; user-select: none; }
+  .copy-btn:hover { opacity: 1; }
+  .copy-btn.copied { background: var(--success); border-color: var(--success); opacity: 1; }
   .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--muted); text-align: center; }
 </style>
 </head>
 <body>
+
+<div id="file-protocol-warning">
+  <strong>⚠️ 3D ビューワはブラウザの CORS ポリシーにより file:// では動きません</strong>
+  <p>このディレクトリで <code>./view.sh</code> を実行して <code>http://localhost:8000/report.html</code> から開いてください。</p>
+</div>
 
 <h1>{{REPO_NAME}}</h1>
 <p class="meta"><a href="{{REPO_URL}}">{{REPO_URL}}</a> &middot; Generated {{TIMESTAMP}}</p>
@@ -179,8 +192,51 @@
   }
 }
 </script>
+<script>
+if (location.protocol === 'file:') {
+  var warning = document.getElementById('file-protocol-warning');
+  if (warning) warning.style.display = 'block';
+}
+
+document.querySelectorAll('pre').forEach(function(pre) {
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'copy-btn';
+  btn.textContent = 'Copy';
+  btn.addEventListener('click', function() {
+    var code = pre.querySelector('code');
+    var text = code ? code.textContent : pre.textContent;
+    var done = function(ok) {
+      btn.textContent = ok ? 'Copied!' : 'Failed';
+      if (ok) btn.classList.add('copied');
+      setTimeout(function() {
+        btn.textContent = 'Copy';
+        btn.classList.remove('copied');
+      }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() { done(true); }, function() { done(false); });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      done(ok);
+    }
+  });
+  pre.appendChild(btn);
+});
+</script>
+
 <script type="module">
 (async () => {
+  if (location.protocol === 'file:') return;
+
   const gsplatEls = document.querySelectorAll('.viewer-gsplat');
   const pcEls = document.querySelectorAll('.viewer-pointcloud');
   const meshEls = document.querySelectorAll('.viewer-mesh');

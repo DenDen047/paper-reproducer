@@ -10,69 +10,59 @@ CV 論文の GitHub リポジトリを、Claude Code エージェントで全自
 
 ## Install
 
-```bash
-# Docker イメージをビルド（初回のみ）
-cd paper-reproduce-skills
-docker build -t paper-reproduce .
-```
+前提ツール: **Docker**, **Claude Code**, **NVIDIA Container Toolkit**
 
-Requirements: Docker, NVIDIA Container Toolkit (GPU 使用時), Claude 認証 (API key or サブスク)
-
-## Usage
+※ **NVIDIA Container Toolkit** が無くても起動するが、CV論文は大半がGPU必須なので入れておくことを推奨。
 
 ```bash
-# 1. 対象リポジトリを clone
-git clone https://github.com/user/some-paper.git
-cd some-paper
-
-# 2. Docker コンテナを起動
-docker run --rm -it \
-  -v $(pwd):/workspace \
-  -v ~/.claude:/home/claude/.claude \
-  --gpus all \
-  --shm-size=8g \
-  paper-reproduce
-
-# 3. Claude Code が起動したら実行
-> /reimplement
+git clone https://github.com/DenDen047/paper-reproducer.git
+cd paper-reproducer
 ```
 
-### Batch processing
+## Quick Start
 
 ```bash
-# 1. repos.txt を作成
-cat > repos.txt << 'EOF'
-https://github.com/user/paper1.git
-https://github.com/user/paper2.git
-https://github.com/user/paper3.git
-EOF
-
-# 2. Docker コンテナでバッチ実行
-docker run --gpus all \
-  -v $(pwd):/workspace \
-  -v pixi-cache:/home/claude/.cache/rattler \
-  -v $(pwd)/results:/results \
-  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-  paper-reproduce \
-  --print --prompt "/batch-reimplement"
+./bootstrap.sh https://github.com/some-user/some-paper.git
 ```
 
-pueue でタスクキューを管理し、各リポジトリを順番に clone → `/reimplement` 実行。結果は `/results/{repo_name}/` に集約され、`summary.json` で全体の成功率を確認できる。
+Claude Code が開いたらプロンプトで `/reimplement` を実行すれば、全自動再現が始まる。
+
+## Batch mode
+
+複数の URL、または `--repos <file>` を渡すと並列バッチで走る。
+
+```bash
+./bootstrap.sh url1.git url2.git url3.git
+./bootstrap.sh --repos repos.txt
+```
+
+- 渡された URL の数だけ並列にコンテナを launch
+- 複数 GPU は `CUDA_VISIBLE_DEVICES` の round-robin で自動分配
+- ログは `$WORKSPACE_DIR/batch-{timestamp}/logs/{repo}.log`、サマリーは同ディレクトリの `summary.json`
+
+## Output
+
+`/reimplement` の実行中・完了後にホスト側へ永続化される:
+
+| パス | 内容 |
+|---|---|
+| `$WORKSPACE_DIR/{repo}/reports/analysis.json` | Phase 1 の解析結果 |
+| `$WORKSPACE_DIR/{repo}/reports/attempts.tsv` | Experiment Loop の全試行ログ |
+| `$WORKSPACE_DIR/{repo}/reports/report.json` | 機械可読レポート |
+| `$WORKSPACE_DIR/{repo}/reports/report.html` | 目視確認用レポート |
+| `$WORKSPACE_DIR/{repo}/reports/samples/` | 入出力サンプル |
+| `$WORKSPACE_DIR/{repo}-{short_sha}.tar.gz` | 状態スナップショット (成功時のみ) |
 
 ## How it works
 
-```
-/reimplement
-    ↓
-[Phase 0] 初期化            git stash, attempts.tsv 初期化
-    ↓
-[Phase 1] リポジトリ解析      依存ファイル特定 + 6-Type 分類 → analysis.json
-    ↓
-[Phase 2] Pixi 環境構築      依存変換 + Experiment Loop → pixi.toml
-    ↓
-[Phase 3] 推論実行            モデル DL + 実行 + OOM フォールバック
-    ↓
-[Phase 4] レポート生成        report.json + report.html + attempts.tsv
+```mermaid
+flowchart TD
+    Start([/reimplement]) --> Read["① 読む<br/>README と依存ファイルを解析<br/>→ 依存ファイル特定 + 6-Type 分類<br/>→ 必要な CUDA・VRAM・モデル重みを特定"]
+    Read --> Check{"② 判定<br/>このマシンで動かせる？<br/>（GPU / ディスク / 認証情報）"}
+    Check -- 不可 --> Fail["失敗レポート<br/>理由と代替案を提示"]
+    Check -- 可 --> Build["③ 環境構築<br/>Type 別戦略で依存を Pixi に変換<br/>→ pixi install が通るまで自動修正"]
+    Build --> Run["④ 実行<br/>モデル DL → 推論スクリプト実行<br/>GPU メモリ不足なら batch size / 精度を下げて再挑戦"]
+    Run --> Report["⑤ レポート<br/>実行コマンド・サンプル出力・次の一手を<br/>report.html にまとめる"]
 ```
 
 ### 6-Type classification

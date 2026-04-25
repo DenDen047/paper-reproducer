@@ -28,7 +28,11 @@ RUN mkdir -p /etc/headless_patches \
     && chmod 0644 /etc/headless_patches/headless_patch.py
 
 # --dangerously-skip-permissions は root では使えないため非 root ユーザーで実行
-RUN useradd -m -s /bin/bash claude \
+# UID/GID は host ユーザーに合わせる。bind-mount された ~/.claude(.json) を読むのに必須。
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN groupadd -g ${USER_GID} claude \
+    && useradd -m -s /bin/bash -u ${USER_UID} -g ${USER_GID} claude \
     && chown -R claude:claude /paper-reproduce-skills \
     && echo "claude ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 

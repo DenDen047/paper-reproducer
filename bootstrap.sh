@@ -98,9 +98,30 @@ command -v python3 >/dev/null 2>&1 || die "python3 not found on PATH (required f
 [[ -f "$DOCKERFILE_DIR/Dockerfile" ]] || die "Dockerfile not found at $DOCKERFILE_DIR"
 
 # --- Docker イメージのビルド（共通）---
-if [[ "$REBUILD" == "1" ]] || ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-  log "building image: $IMAGE_NAME"
-  docker build -t "$IMAGE_NAME" "$DOCKERFILE_DIR"
+# host UID/GID を build-arg で渡す。bind-mount した ~/.claude(.json) を
+# コンテナ内の claude user が読めるようにするため。
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
+IMAGE_UID_LABEL=""
+if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+  IMAGE_UID_LABEL="$(docker image inspect "$IMAGE_NAME" \
+    --format '{{ index .Config.Labels "host.uid" }}{{":"}}{{ index .Config.Labels "host.gid" }}' 2>/dev/null || true)"
+fi
+NEED_BUILD=0
+if [[ "$REBUILD" == "1" ]]; then NEED_BUILD=1
+elif ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then NEED_BUILD=1
+elif [[ "$IMAGE_UID_LABEL" != "${HOST_UID}:${HOST_GID}" ]]; then
+  log "image was built with UID/GID '$IMAGE_UID_LABEL', host is '${HOST_UID}:${HOST_GID}' — rebuilding"
+  NEED_BUILD=1
+fi
+if [[ "$NEED_BUILD" == "1" ]]; then
+  log "building image: $IMAGE_NAME (UID=$HOST_UID GID=$HOST_GID)"
+  docker build \
+    --build-arg "USER_UID=${HOST_UID}" \
+    --build-arg "USER_GID=${HOST_GID}" \
+    --label "host.uid=${HOST_UID}" \
+    --label "host.gid=${HOST_GID}" \
+    -t "$IMAGE_NAME" "$DOCKERFILE_DIR"
 else
   log "image $IMAGE_NAME already present (use --rebuild to force)"
 fi

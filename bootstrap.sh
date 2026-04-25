@@ -154,6 +154,29 @@ if [[ -n "${COLORTERM:-}" ]]; then
   TERM_ENV+=(-e "COLORTERM=${COLORTERM}")
 fi
 
+# --- ~/.claude 配下の symlink 解決用マウント ---
+# dotter 等で ~/.claude/{settings.json,skills/*,CLAUDE.md} が外部 dir への
+# symlink になっている場合、マウントしただけだとコンテナ内で切れている。
+# 同一パスに read-only でマウントすれば symlink がそのまま辿れる。
+SYMLINK_MOUNTS=()
+if [[ -d "$HOME/.claude" ]]; then
+  declare -A _seen=()
+  while IFS= read -r -d '' link; do
+    target="$(readlink -f "$link" 2>/dev/null || true)"
+    [[ -z "$target" ]] && continue
+    [[ "$target" == "$HOME/.claude"* ]] && continue
+    [[ "$target" == "$HOME/.claude.json" ]] && continue
+    while [[ "$target" != "/" && "$target" != "$HOME" ]]; do
+      parent="$(dirname "$target")"
+      [[ "$parent" == "$HOME" || "$parent" == "/" ]] && break
+      target="$parent"
+    done
+    [[ -z "${_seen[$target]:-}" && -e "$target" ]] || continue
+    _seen[$target]=1
+    SYMLINK_MOUNTS+=(-v "$target:$target:ro")
+  done < <(find "$HOME/.claude" -maxdepth 4 -type l -print0 2>/dev/null)
+fi
+
 # --- ヘルパー: 1 repo の clone（ホスト側）---
 clone_one() {
   local url="$1"
@@ -192,6 +215,7 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
     -v "$WORKSPACE_DIR:/workspaces" \
     -v "$HOME/.claude:/home/claude/.claude" \
     "${CLAUDE_JSON_MOUNT[@]}" \
+    "${SYMLINK_MOUNTS[@]}" \
     "${TERM_ENV[@]}" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$REPO_NAME" \
@@ -232,6 +256,7 @@ docker_cmd_for() {
     -v "$WORKSPACE_DIR:/workspaces" \
     -v "$HOME/.claude:/home/claude/.claude" \
     "${CLAUDE_JSON_MOUNT[@]}" \
+    "${SYMLINK_MOUNTS[@]}" \
     "${TERM_ENV[@]}" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$name" \

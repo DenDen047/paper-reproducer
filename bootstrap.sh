@@ -147,6 +147,13 @@ if [[ -f "$HOME/.claude.json" ]]; then
   CLAUDE_JSON_MOUNT=(-v "$HOME/.claude.json:/home/claude/.claude.json")
 fi
 
+# --- TERM/COLORTERM 伝播 ---
+# 未設定だと Docker が TERM=dumb を渡し、Claude Code の Ink TUI が描画されない。
+TERM_ENV=(-e "TERM=${TERM:-xterm-256color}")
+if [[ -n "${COLORTERM:-}" ]]; then
+  TERM_ENV+=(-e "COLORTERM=${COLORTERM}")
+fi
+
 # --- ヘルパー: 1 repo の clone（ホスト側）---
 clone_one() {
   local url="$1"
@@ -185,6 +192,7 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
     -v "$WORKSPACE_DIR:/workspaces" \
     -v "$HOME/.claude:/home/claude/.claude" \
     "${CLAUDE_JSON_MOUNT[@]}" \
+    "${TERM_ENV[@]}" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$REPO_NAME" \
     --shm-size=8g \
@@ -224,6 +232,7 @@ docker_cmd_for() {
     -v "$WORKSPACE_DIR:/workspaces" \
     -v "$HOME/.claude:/home/claude/.claude" \
     "${CLAUDE_JSON_MOUNT[@]}" \
+    "${TERM_ENV[@]}" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$name" \
     --shm-size=8g \

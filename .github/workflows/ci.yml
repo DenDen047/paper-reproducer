@@ -19,7 +19,6 @@ jobs:
             "paper-reproduce-skills/.claude-plugin/plugin.json"
             "paper-reproduce-skills/Dockerfile"
             "paper-reproduce-skills/commands/reimplement.md"
-            "paper-reproduce-skills/commands/batch-reimplement.md"
             "paper-reproduce-skills/templates/report.html"
             "paper-reproduce-skills/skills/repo-analyzer/SKILL.md"
             "paper-reproduce-skills/skills/pixi-env-builder/SKILL.md"
@@ -95,4 +94,6 @@ jobs:
           docker run --rm --entrypoint="" paper-reproduce-test \
             ls /paper-reproduce-skills/templates/report.html
           docker run --rm --entrypoint="" paper-reproduce-test \
-            which pueue pueued
+            ls /usr/local/bin/entrypoint.sh
+          docker run --rm --entrypoint="" paper-reproduce-test \
+            bash -c 'test "$(stat -c %U /home/claude/.cache)" = claude'

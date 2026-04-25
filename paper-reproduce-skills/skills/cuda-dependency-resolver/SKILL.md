@@ -7,59 +7,53 @@ allowed-tools: Bash Read Write Edit Grep
 
 # cuda-dependency-resolver: CUDA 依存解決
 
-CV 論文リポジトリで最も厄介な CUDA 依存を統一的に解決するスキル。
-denkiwakame 氏の Day 17 (pixi で CUDA を管理する) に準拠。
+denkiwakame Day 17 準拠。野良リポジトリの CUDA 依存を Pixi で1つに統一する。
 
-## 4つの CUDA 問題
+## 4つの CUDA 混入源
 
-野良リポジトリでは以下の4箇所から CUDA が混入し、バージョン不整合を起こす:
+1. PyPI wheel 同梱 (torch 等)
+2. conda パッケージ (conda-forge / nvidia)
+3. Docker base image (`FROM nvidia/cuda:...`)
+4. ホストインストーラ (`/usr/local/cuda`)
 
-1. **PyPI wheel に同梱された CUDA runtime** (torch の wheel 等)
-2. **conda パッケージの CUDA** (conda-forge or nvidia channel)
-3. **Docker base image の CUDA** (FROM nvidia/cuda:...)
-4. **ホストにインストーラで入れた CUDA** (/usr/local/cuda)
+## CUDA ↔ PyTorch 互換マトリクス
 
-**解決方針**: Pixi で1つに統一する。
+| torch | 推奨 CUDA | 備考 |
+|---|---|---|
+| < 2.2 | 11.8 | 2.0.x は 12.x 不可。`nvidia/label/cuda-11.8.0` を使う |
+| 2.2 – 2.4 | 12.1 / 12.4 | 両方可、conda-forge が無難 |
+| ≥ 2.5 | 12.4 / 12.6 | Ada/Hopper は 12.4+ 必須 |
 
-## CUDA バージョン決定フロー
+未特定時:
+- torch のみ判明 → 上表で CUDA を決定
+- 両方不明 → CUDA 12.1（最も互換性高い）
 
-```
-1. analysis.json の cuda_version を確認
-2. 未特定の場合:
-   - PyTorch バージョンから推定:
-     torch 2.0-2.1 → CUDA 11.8 or 12.1
-     torch 2.2+    → CUDA 12.1 or 12.4
-   - README / Dockerfile から推定
-3. デフォルト: CUDA 12.1 (最も互換性が高い)
-```
+torch 2.0.x + CUDA 12.x はビルドで死ぬ。Phase 0 pre-flight で Tier 0 として先に直す。
 
-## nvidia channel vs conda-forge channel
+## チャンネル選択
 
-| 観点 | nvidia | conda-forge |
-|------|--------|-------------|
-| gcc/g++ | 外から見えない (要 pixi add) | c/cxx-compiler で共有可能 |
-| CUDA 12+ | OK | 推奨 |
-| CUDA 11 以下 | 推奨 | 非推奨 |
-| バージョン指定 | channel label で絞る | cuda-version メタパッケージ |
+| 条件 | channel |
+|---|---|
+| CUDA ≥ 12 | conda-forge |
+| CUDA < 12 | nvidia（label で絞る） |
 
-### 判定ロジック
+## チャンネル順の絶対ルール（conda pytorch 使用時）
 
-```
-if cuda_version >= 12:
-    cuda_channel = "conda-forge"  # 推奨
-    # cuda-version メタパッケージでバージョン指定
-    # c-compiler / cxx-compiler が使える
-elif cuda_version < 12:
-    cuda_channel = "nvidia"
-    # channel label で絞る (例: nvidia/label/cuda-11.8.0)
-    # gcc/gxx を明示的に pixi add する必要あり
+pixi resolver は先頭優先で探索。先頭で torch が見つかれば打ち切るため、順序を間違えると **CPU-only torch が先勝ち**して CUDA 不在のまま「install 成功」扱いになる。
+
+```toml
+# ✅ 正しい
+channels = ["pytorch", "nvidia", "conda-forge"]
+
+# ❌ 逆順は CPU-only torch が勝つ
+channels = ["conda-forge", "pytorch", "nvidia"]
 ```
 
-## pixi.toml への適用パターン
+PyPI torch wheel（dep-converter の `extra-index-urls` パターン）使用時は適用外。
 
-### パターン 1: conda-forge CUDA + PyPI torch (推奨)
+## 適用パターン
 
-最もクリーンな構成。CUDA 12+ 向け。
+### パターン 1: conda-forge CUDA + PyPI torch（推奨、CUDA 12+）
 
 ```toml
 [project]
@@ -82,14 +76,11 @@ torchvision = ">=0.16"
 cuda = "12.1"
 ```
 
-### パターン 2: nvidia channel CUDA 12+ + conda torch
-
-元リポジトリが conda pytorch を使っていて CUDA 12+ の場合。
+### パターン 2: nvidia channel + conda torch（CUDA 12+）
 
 ```toml
 [project]
 channels = ["pytorch", "nvidia", "conda-forge"]
-platforms = ["linux-64"]
 
 [dependencies]
 python = ">=3.10"
@@ -98,25 +89,23 @@ torchvision = ">=0.16"
 cuda = "12.1.*"
 gcc = "11.*"
 gxx = "11.*"
-cmake = ">=3.20"
 
 [system-requirements]
 cuda = "12.1"
 ```
 
-### パターン 3: nvidia channel CUDA 11.x (レガシー)
+### パターン 3: CUDA 11.x レガシー
 
-古い論文で CUDA 11.x を要求する場合。**channel label でバージョンを絞ることが必須。**
+CUDA 11.x では **`cuda-toolkit` メタパッケージ禁止**（nvidia channel で 12.x に解決される）。
 
-**CRITICAL**: CUDA 11.x では `cuda-toolkit` メタパッケージを使ってはいけない。nvidia channel の `cuda-toolkit` は最新版 (12.x) に解決されてしまう。代わりに:
-1. `nvidia/label/cuda-{version}` channel label を追加してバージョンを絞る
-2. `cuda = "{version}.*"` メタパッケージでピン留めする
-3. `gcc`/`gxx` は CUDA バージョンに合わせて上限を設定する (CUDA 11.x → gcc <12)
+必須:
+- `nvidia/label/cuda-{version}` channel label でバージョン固定
+- `cuda = "{version}.*"` で pin
+- gcc は CUDA に合わせて上限設定（CUDA 11.x → `gcc = "11.*"`）
 
 ```toml
 [project]
 channels = ["pytorch", "nvidia/label/cuda-11.7.0", "nvidia", "conda-forge"]
-platforms = ["linux-64"]
 
 [dependencies]
 python = ">=3.8,<3.11"
@@ -131,73 +120,49 @@ gxx = "11.*"
 cuda = "11.7"
 ```
 
-**よくあるミス（してはいけない）:**
-- `cuda-toolkit = "11.7.*"` → nvidia channel では 12.x に解決されることがある。`cuda = "11.7.*"` を使う
-- `channels = ["pytorch", "nvidia", "conda-forge"]` で CUDA 11.x → label なしの nvidia channel は最新版を引く。`nvidia/label/cuda-11.7.0` を追加する
-- `gcc = ">=11,<13"` で CUDA 11.x → g++ 12.x が入り CUDA 11.x と非互換。`gcc = "11.*"` にピンする
+**MUST NOT（CUDA 11.x）:**
+- `cuda-toolkit = "11.7.*"` を使う（12.x に解決される）
+- label なし `nvidia` channel で固定する（最新版を引く）
+- `gcc = ">=11,<13"` で指定する（g++ 12.x が入り非互換）
 
 ## system-requirements.cuda
 
-**重要**: これはホスト GPU ドライバの要件申告であり、pixi 環境内の CUDA バージョンとは別物。
+ホスト GPU ドライバ要件の申告であり、環境内 CUDA とは別物。`nvidia-smi` 表示バージョン以下を指定する。pixi はこの値で互換解決する。実際の toolkit は `[dependencies] cuda-toolkit` で指定。
 
-- ホストの nvidia-smi で表示される CUDA バージョン以下を指定する
-- pixi はこの値を見て、互換性のあるパッケージを解決する
-- 実際の CUDA toolkit は `[dependencies]` の `cuda-toolkit` で指定する
+## gcc/gxx 管理
 
-```toml
-# ホストドライバが CUDA 12.4 対応の場合、12.1 を要求しても OK
-[system-requirements]
-cuda = "12.1"
-```
+| channel | 追加方法 |
+|---|---|
+| nvidia | 必須: `gcc = ">=11"` + `gxx = ">=11"`（nvidia の CUDA からは gcc が見えない） |
+| conda-forge | 推奨: `c-compiler = "*"` + `cxx-compiler = "*"` |
 
-## gcc/gxx の管理
-
-### nvidia channel 使用時 (必須)
-
-nvidia channel の CUDA パッケージでは gcc/g++ が環境外から見えない (Day 17)。
-C++/CUDA 拡張をビルドする submodule がある場合は必ず追加:
-
-```toml
-[dependencies]
-gcc = ">=11"
-gxx = ">=11"
-```
-
-### conda-forge 使用時 (推奨)
-
-conda-forge の `c-compiler` / `cxx-compiler` メタパッケージが利用可能:
-
-```toml
-[dependencies]
-c-compiler = "*"
-cxx-compiler = "*"
-```
-
-## CUDA 関連エラーの診断
+## CUDA 関連エラー診断
 
 | エラー | 原因 | 対処 |
-|--------|------|------|
-| `nvcc not found` | cuda-toolkit 未追加 | `pixi add cuda-toolkit` (12+) or `pixi add cuda` (11.x) |
-| `gcc: command not found` (ビルド時) | gcc が pixi 環境にない | `pixi add gcc gxx` |
-| nvcc バージョンが想定と違う (例: 12.4 vs 11.7) | `cuda-toolkit` メタパッケージが最新版に解決された | `nvidia/label/cuda-{version}` channel + `cuda = "{version}.*"` に変更 |
-| `error: -- unsupported GNU version! gcc versions later than X are not supported!` | gcc が CUDA バージョンの上限を超えている | CUDA 11.x → `gcc = "11.*"`, CUDA 12.x → `gcc = "12.*"` |
-| `CUDA_HOME is not set` | 環境変数未設定 | pixi activation script で設定、または `pixi add cuda-toolkit` で自動設定 |
-| `RuntimeError: CUDA error: no kernel image` | CUDA compute capability 不一致 | torch の CUDA バージョンと GPU アーキテクチャを確認 |
-| `libcudart.so: cannot open shared object` | CUDA runtime 不一致 | PyPI wheel と conda CUDA が競合 → 片方に統一 |
-| `error: unsupported gpu architecture 'compute_90'` | 古い CUDA で新 GPU | CUDA バージョンを上げる |
-| `undefined symbol: __cudaRegisterLinkedBinary` | ドライバ不整合 | system-requirements.cuda をホストドライバに合わせる |
+|---|---|---|
+| `nvcc not found` | cuda-toolkit 未追加 | `pixi add cuda-toolkit` (12+) / `cuda` (11.x) |
+| `gcc: command not found` | gcc 未追加 | `pixi add gcc gxx` |
+| nvcc バージョン不一致 | メタパッケージが最新に解決 | `nvidia/label/cuda-{version}` + `cuda = "{version}.*"` |
+| `unsupported GNU version!` | gcc が CUDA 上限超過 | 11.x→`gcc = "11.*"`、12.x→`gcc = "12.*"` |
+| `CUDA_HOME is not set` | 環境変数未設定 | activation script、または `cuda-toolkit` 追加で自動 |
+| `CUDA error: no kernel image` | compute capability 不一致 | torch の CUDA と GPU 世代を確認 |
+| `libcudart.so: cannot open` | PyPI と conda の競合 | 片方に統一 |
+| `unsupported gpu architecture 'compute_90'` | 古い CUDA で新 GPU | CUDA を上げる |
+| `undefined symbol: __cudaRegisterLinkedBinary` | ドライバ不整合 | system-requirements.cuda をドライバに合わせる |
+| DL が 120s 超 / timeout | ミラー遅延・切断 | `--resume-retries 5 --timeout 120` でリトライ。失敗時はミラー切替 (HF: `HF_ENDPOINT=https://hf-mirror.com`) |
+| `nvidia-cudnn-*` DL が 500s 超 | 巨大 wheel + 単一ミラー | conda-forge `cudnn` に切替 |
 
-## 環境変数の設定
+## 環境変数設定
 
-CUDA 拡張のビルドに必要な環境変数を pixi の activation script で設定:
+CUDA 拡張ビルド用に activation script で設定:
 
 ```toml
 [activation]
 scripts = ["setup_env.sh"]
 ```
 
-`setup_env.sh`:
 ```bash
+# setup_env.sh
 export CUDA_HOME=$CONDA_PREFIX
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH

@@ -31,11 +31,56 @@
   .artifacts ul { list-style: none; }
   .artifacts li { padding: 0.25rem 0; font-family: monospace; font-size: 0.85rem; }
   .artifacts li::before { content: "📄 "; }
-  pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; line-height: 1.5; }
+  .usage h3 { font-size: 1rem; margin: 0.75rem 0 0.5rem; color: var(--text); }
+  .usage h3:first-child { margin-top: 0; }
+  .usage h4 { font-size: 0.9rem; margin: 0.75rem 0 0.25rem; color: var(--muted); font-weight: 600; }
+  .usage p { margin: 0.25rem 0 0.5rem; font-size: 0.9rem; }
+  .usage-note { color: var(--muted); font-size: 0.8rem; }
+  .usage-verified { color: var(--success); font-weight: 600; }
+  .usage-empty { color: var(--muted); font-style: italic; }
+  .next-actions .next-action-item { padding: 0.75rem 0; border-bottom: 1px dashed var(--border); }
+  .next-actions .next-action-item:last-child { border-bottom: none; padding-bottom: 0; }
+  .next-actions .next-action-item:first-child { padding-top: 0; }
+  .next-actions .next-action-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; }
+  .priority-badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #fff; }
+  .priority-high { background: var(--failed); }
+  .priority-medium { background: var(--partial); }
+  .priority-low { background: var(--muted); }
+  #file-protocol-warning { display: none; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+  #file-protocol-warning strong { display: block; margin-bottom: 0.5rem; color: #92400e; font-size: 0.95rem; }
+  #file-protocol-warning p { margin: 0.25rem 0; font-size: 0.85rem; color: #78350f; }
+  #file-protocol-warning pre { margin: 0.5rem 0; font-size: 0.8rem; }
+  #file-protocol-warning code { color: inherit; }
+  .samples .sample-item { margin-bottom: 1.5rem; }
+  .samples .sample-item:last-child { margin-bottom: 0; }
+  .samples h4 { font-size: 0.9rem; margin: 0 0 0.5rem; color: var(--muted); font-weight: 600; }
+  .sample-grid { display: grid; gap: 0.75rem; }
+  .sample-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sample-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sample-grid figure { margin: 0; }
+  .sample-grid img { width: 100%; height: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); display: block; }
+  .sample-grid figcaption { font-size: 0.75rem; color: var(--muted); text-align: center; margin-top: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .viewer-3d { width: 100%; height: 480px; border: 1px solid var(--border); border-radius: 4px; background: #1e293b; position: relative; overflow: hidden; }
+  .viewer-3d canvas { display: block; }
+  .viewer-3d .viewer-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.85rem; padding: 1rem; text-align: center; }
+  .sample-video { width: 100%; max-width: 960px; display: block; border: 1px solid var(--border); border-radius: 4px; background: #000; }
+  @media (max-width: 640px) {
+    .sample-grid-2, .sample-grid-3 { grid-template-columns: 1fr; }
+    .viewer-3d { height: 320px; }
+  }
+  pre { background: #1e293b; color: #e2e8f0; padding: 1rem; padding-right: 4.5rem; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; line-height: 1.5; position: relative; }
+  .copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; background: #334155; border: 1px solid #475569; color: #e2e8f0; padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.7rem; font-family: inherit; cursor: pointer; opacity: 0.55; transition: opacity 0.15s, background 0.15s; user-select: none; }
+  .copy-btn:hover { opacity: 1; }
+  .copy-btn.copied { background: var(--success); border-color: var(--success); opacity: 1; }
   .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--muted); text-align: center; }
 </style>
 </head>
 <body>
+
+<div id="file-protocol-warning">
+  <strong>⚠️ 3D ビューワはブラウザの CORS ポリシーにより file:// では動きません</strong>
+  <p>このディレクトリで <code>./view.sh</code> を実行して <code>http://localhost:8000/report.html</code> から開いてください。</p>
+</div>
 
 <h1>{{REPO_NAME}}</h1>
 <p class="meta"><a href="{{REPO_URL}}">{{REPO_URL}}</a> &middot; Generated {{TIMESTAMP}}</p>
@@ -63,6 +108,31 @@
   </div>
 </div>
 
+<!-- ===== Next Actions ===== -->
+<h2>Next Actions</h2>
+<div class="card next-actions">
+{{NEXT_ACTIONS_BLOCK}}
+</div>
+
+<!-- ===== Usage Guide ===== -->
+<h2>使い方</h2>
+<div class="card usage">
+  <h3>Quickstart</h3>
+{{QUICKSTART_BLOCK}}
+
+  <h3>発展的使い方</h3>
+{{ADVANCED_BLOCK}}
+
+  <h3>開発者向け</h3>
+{{DEVELOPER_BLOCK}}
+</div>
+
+<!-- ===== Sample I/O ===== -->
+<h2>サンプル入出力</h2>
+<div class="card samples">
+{{SAMPLES_BLOCK}}
+</div>
+
 <!-- ===== Attempt History ===== -->
 <h2>Attempt History</h2>
 <div class="card" style="overflow-x: auto;">
@@ -84,7 +154,7 @@
     </tbody>
   </table>
 </div>
-<!-- ASSERTION: tbody の行数 == attempts.tsv のデータ行数。不一致は禁止。 -->
+<!-- ASSERTION: tbody の行数 == reports/attempts.tsv のデータ行数。不一致は禁止。 -->
 
 <!-- ===== Artifacts ===== -->
 <h2>Generated Artifacts</h2>
@@ -111,6 +181,316 @@
 <div class="footer">
   Generated by <strong>paper-reproduce</strong> plugin v{{PLUGIN_VERSION}}
 </div>
+
+<!-- ===== 3D viewers (Three.js + gaussian-splats-3d via CDN) ===== -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "@mkkellogg/gaussian-splats-3d": "https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js"
+  }
+}
+</script>
+<script>
+if (location.protocol === 'file:') {
+  var warning = document.getElementById('file-protocol-warning');
+  if (warning) warning.style.display = 'block';
+}
+
+document.querySelectorAll('pre').forEach(function(pre) {
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'copy-btn';
+  btn.textContent = 'Copy';
+  btn.addEventListener('click', function() {
+    var code = pre.querySelector('code');
+    var text = code ? code.textContent : pre.textContent;
+    var done = function(ok) {
+      btn.textContent = ok ? 'Copied!' : 'Failed';
+      if (ok) btn.classList.add('copied');
+      setTimeout(function() {
+        btn.textContent = 'Copy';
+        btn.classList.remove('copied');
+      }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() { done(true); }, function() { done(false); });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      done(ok);
+    }
+  });
+  pre.appendChild(btn);
+});
+</script>
+
+<script type="module">
+(async () => {
+  if (location.protocol === 'file:') return;
+
+  const gsplatEls = document.querySelectorAll('.viewer-gsplat');
+  const pcEls = document.querySelectorAll('.viewer-pointcloud');
+  const meshEls = document.querySelectorAll('.viewer-mesh');
+  if (gsplatEls.length === 0 && pcEls.length === 0 && meshEls.length === 0) return;
+
+  let THREE, OrbitControls;
+  try {
+    THREE = await import('three');
+    ({ OrbitControls } = await import('three/addons/controls/OrbitControls.js'));
+  } catch (err) {
+    const msg = `Three.js の読み込みに失敗しました: ${err.message}`;
+    [...gsplatEls, ...pcEls, ...meshEls].forEach(el => {
+      el.innerHTML = `<div class="viewer-error">${msg}</div>`;
+    });
+    return;
+  }
+
+  // Shared: scene / camera / renderer / controls setup
+  const setupViewer = (el) => {
+    const width = el.clientWidth || 600;
+    const height = el.clientHeight || 480;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1e293b);
+    const camera = new THREE.PerspectiveCamera(50, width / height, 0.001, 10000);
+    camera.position.set(0, 0, 2);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(width, height);
+    el.appendChild(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    const onResize = () => {
+      const w = el.clientWidth || width;
+      const h = el.clientHeight || height;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    };
+    window.addEventListener('resize', onResize);
+
+    const animate = () => {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    return { scene, camera, controls, renderer };
+  };
+
+  const autoFit = (object, camera, controls) => {
+    const box = new THREE.Box3().setFromObject(object);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    object.position.sub(center);
+    camera.position.set(0, 0, maxDim * 2.0);
+    controls.target.set(0, 0, 0);
+    controls.update();
+    return maxDim;
+  };
+
+  // ----- Point cloud viewer -----
+  if (pcEls.length > 0) {
+    let PLYLoader;
+    try {
+      ({ PLYLoader } = await import('three/addons/loaders/PLYLoader.js'));
+    } catch (err) {
+      pcEls.forEach(el => {
+        el.innerHTML = `<div class="viewer-error">PLYLoader の読み込みに失敗: ${err.message}</div>`;
+      });
+      pcEls.length = 0;
+    }
+
+    pcEls.forEach(el => {
+      const src = el.dataset.src;
+      if (!src) return;
+
+      const width = el.clientWidth || 600;
+      const height = el.clientHeight || 480;
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x1e293b);
+
+      const camera = new THREE.PerspectiveCamera(60, width / height, 0.001, 10000);
+      camera.position.set(0, 0, 2);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(width, height);
+      el.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+
+      const loader = new PLYLoader();
+      loader.load(
+        src,
+        (geometry) => {
+          geometry.computeBoundingBox();
+          const center = new THREE.Vector3();
+          geometry.boundingBox.getCenter(center);
+          geometry.translate(-center.x, -center.y, -center.z);
+
+          const size = new THREE.Vector3();
+          geometry.boundingBox.getSize(size);
+          const maxDim = Math.max(size.x, size.y, size.z) || 1;
+
+          const hasColor = geometry.hasAttribute('color');
+          const material = new THREE.PointsMaterial({
+            size: maxDim * 0.002,
+            vertexColors: hasColor,
+            color: hasColor ? 0xffffff : 0x7dd3fc,
+            sizeAttenuation: true,
+          });
+          const points = new THREE.Points(geometry, material);
+          scene.add(points);
+
+          camera.position.set(0, 0, maxDim * 2.0);
+          controls.target.set(0, 0, 0);
+          controls.update();
+        },
+        undefined,
+        (err) => {
+          el.innerHTML = `<div class="viewer-error">点群の読み込みに失敗: ${err.message || err}</div>`;
+        }
+      );
+
+      const onResize = () => {
+        const w = el.clientWidth || width;
+        const h = el.clientHeight || height;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+      };
+      window.addEventListener('resize', onResize);
+
+      const animate = () => {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      };
+      animate();
+    });
+  }
+
+  // ----- Mesh viewer (GLTFLoader / OBJLoader) -----
+  if (meshEls.length > 0) {
+    let GLTFLoader, OBJLoader;
+    try {
+      ({ GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'));
+    } catch (err) {
+      meshEls.forEach(el => {
+        el.innerHTML = `<div class="viewer-error">GLTFLoader の読み込みに失敗: ${err.message}</div>`;
+      });
+    }
+    try {
+      ({ OBJLoader } = await import('three/addons/loaders/OBJLoader.js'));
+    } catch {
+      // OBJLoader is optional; .obj files will fail gracefully below
+    }
+
+    meshEls.forEach(el => {
+      const src = el.dataset.src;
+      if (!src) return;
+      const ext = (src.split('.').pop() || '').toLowerCase();
+
+      const { scene, camera, controls } = setupViewer(el);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+      dirLight.position.set(5, 10, 7.5);
+      scene.add(dirLight);
+
+      const onError = (err) => {
+        el.innerHTML = `<div class="viewer-error">メッシュの読み込みに失敗: ${err.message || err}</div>`;
+      };
+
+      if ((ext === 'glb' || ext === 'gltf') && GLTFLoader) {
+        const loader = new GLTFLoader();
+        loader.load(
+          src,
+          (gltf) => {
+            scene.add(gltf.scene);
+            autoFit(gltf.scene, camera, controls);
+          },
+          undefined,
+          onError
+        );
+      } else if (ext === 'obj' && OBJLoader) {
+        const loader = new OBJLoader();
+        loader.load(
+          src,
+          (object) => {
+            // Default material if none loaded
+            object.traverse(child => {
+              if (child.isMesh && !child.material) {
+                child.material = new THREE.MeshStandardMaterial({ color: 0x94a3b8 });
+              }
+            });
+            scene.add(object);
+            autoFit(object, camera, controls);
+          },
+          undefined,
+          onError
+        );
+      } else {
+        onError(new Error(`未対応の拡張子: .${ext}`));
+      }
+    });
+  }
+
+  // ----- Gaussian Splatting viewer -----
+  if (gsplatEls.length > 0) {
+    let GaussianSplats3D;
+    try {
+      GaussianSplats3D = await import('@mkkellogg/gaussian-splats-3d');
+    } catch (err) {
+      gsplatEls.forEach(el => {
+        el.innerHTML = `<div class="viewer-error">gaussian-splats-3d の読み込みに失敗: ${err.message}</div>`;
+      });
+      return;
+    }
+
+    gsplatEls.forEach(el => {
+      const src = el.dataset.src;
+      if (!src) return;
+
+      try {
+        const viewer = new GaussianSplats3D.Viewer({
+          rootElement: el,
+          cameraUp: [0, -1, 0],
+          initialCameraPosition: [0, 0, -5],
+          initialCameraLookAt: [0, 0, 0],
+          sharedMemoryForWorkers: false,
+          halfPrecisionCovariancesOnGPU: true,
+          useBuiltInControls: true,
+        });
+        viewer
+          .addSplatScene(src, {
+            showLoadingUI: true,
+            progressiveLoad: true,
+          })
+          .then(() => viewer.start())
+          .catch((err) => {
+            el.innerHTML = `<div class="viewer-error">3DGS の読み込みに失敗: ${err.message || err}</div>`;
+          });
+      } catch (err) {
+        el.innerHTML = `<div class="viewer-error">3DGS ビューワ初期化失敗: ${err.message}</div>`;
+      }
+    });
+  }
+})();
+</script>
 
 </body>
 </html>

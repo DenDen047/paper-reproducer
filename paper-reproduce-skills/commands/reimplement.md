@@ -82,7 +82,9 @@ ldd --version | head -1
 `analysis.json.feasibility.status` で分岐:
 
 - `infeasible` → Phase 2 に入らず Phase 4 へ直行。`report.json.status="failed"`、`errors=analysis.json.feasibility.blockers`、`next_actions` に代替手段（軽量版 / 別 weights / spec 要件）
-- `degraded` → 警告のみ。Phase 3 の OOM ladder を初手から下げて開始
+- `degraded` → 警告記録の上 Phase 2 へ進む。`blockers` 内容で初手を変更:
+  - `gpu_arch_incompatible`: attempt 1 から `recommended_torch/cuda` で pixi.toml を構成（`cuda_torch_compat_mismatch` と同フロー）
+  - その他: OOM ladder を初手から縮小して開始
 - `ok` → 通常進行
 
 ```json
@@ -283,6 +285,11 @@ while not inference_succeeded:
   - 失敗 Tier に応じた根本原因と次のデバッグ手順
   - 代替アプローチ（別チャンネル、別バージョン、Docker fallback）
   - `errors` 各項目の修正候補
+  - `gpu_arch_incompatible` が `errors` に含まれる場合は高優先度で必ず記す:
+    - `action`: 推奨 torch+cuda への更新手順（`recommended_torch/cuda` 使用）
+    - `reason`: ホスト GPU アーキテクチャと必要バージョンの具体的説明
+    - `command`: pixi.toml の torch wheel 行の書き換え例（依存再ビルド手順も含める）
+    - `cost`: 再ビルドのみなら `free`、API 非互換で移植必要なら effort `high`
 
 **スキーマ**:
 

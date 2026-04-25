@@ -140,13 +140,14 @@ pixi.toml / コマンド引数 / env var の変更で直る。
 
 ### Tier 2-hardware
 
-リソース不足。縮小して通す。OOM ladder（後述）の Step 5 まで必ず試す。
+リソース不足または GPU アーキテクチャ非互換。OOM ladder / Arch Upgrade Ladder で対処。
 
 | エラー | 対処 |
 |---|---|
 | GPU OOM | OOM ladder |
 | Host RAM OOM (SIGKILL / RC=137) | batch/num_frames 縮小 → fp16 → CPU |
-| compute capability 不足 | 低精度 fallback or CPU |
+| `CUDA error: no kernel image is available` （ホスト GPU が新しすぎる） | Arch Upgrade Ladder |
+| GPU が古すぎる（required SM > host SM） | CPU fallback（OOM ladder Step 5 相当） |
 
 ### Tier 3: Fundamental Rethink
 
@@ -179,9 +180,10 @@ pixi.toml / コマンド引数 / env var の変更で直る。
   ├─ ModuleNotFoundError / FileNotFoundError → Tier 1
   ├─ cv2.error / matplotlib GUI / open3d visualization → Tier 1 (headless patch)
   ├─ CUDA OOM / Host RAM OOM (RC=137) → Tier 2-hardware (OOM ladder)
+  ├─ CUDA error: no kernel image is available → Tier 2-hardware (Arch Upgrade Ladder)
   ├─ 入力パス不正 → Tier 2-config
   ├─ SegmentationFault / 認証 / 非公開データセット → Tier 3
-  └─ OOM ladder Step 5 まで全滅 → Tier 3 昇格
+  └─ OOM ladder / Arch Upgrade Ladder Step 4 まで全滅 → Tier 3 昇格
 ```
 
 ## OOM ladder（Tier 2-hardware）
@@ -198,6 +200,24 @@ Step 5: CPU fallback — CUDA_VISIBLE_DEVICES="" pixi run python ...
         CPU で動けば成功扱い、report に「CPU-only fallback」と記録
         Step 5 も OOM → Tier 3
 ```
+
+## Arch Upgrade Ladder（Tier 2-hardware: GPU アーキテクチャ非互換）
+
+`no kernel image` エラー時に使用。`gpu_arch_incompatible.recommended_torch/cuda` を起点とし、Step 4 まで試みてから Tier 3 昇格。
+
+```
+Step 1: pixi.toml の torch wheel を recommended_torch+cuda に更新 → pixi install
+        新 torch が Python バージョン要件を上げる場合は python = "x.y.*" も同時に変更
+Step 2: CUDA 拡張（gsplat / pointops 等）を新 cuda で再ビルド（install-* タスクを再実行）
+Step 3: API 互換エラー → Tier 2-config で自動修正
+        （torch.load weights_only 引数追加・deprecated import パス変更・設定フラグ切替など）
+Step 4: CPU fallback（OOM ladder Step 5 相当）
+        成功時は report に「CPU-only fallback: arch_upgrade_failed」を記録
+        Step 4 も失敗 → Tier 3
+```
+
+多段ソースビルドが必要な依存（例: cumm → spconv の連鎖）は Tier 3 に達することがある。
+Tier 3 時: `errors` に `gpu_arch_incompatible` を記載、`next_actions` に推奨 torch/cuda と依存非互換リストを記述。
 
 ## Headless 環境対策（Tier 1 詳細）
 

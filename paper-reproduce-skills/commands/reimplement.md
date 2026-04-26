@@ -91,6 +91,11 @@ ldd --version | head -1
 {
   "repo_name": "string",
   "repo_url": "string",
+  "overview": {
+    "title": "string|null",
+    "tagline": "string|null",
+    "paper_url": "string|null"
+  },
   "dep_type": "A1|A2|A3|B1|B2|B3|C1|C2|C3|D1|D2|D3|E1|E2|E3|F",
   "dep_type_label": "string",
   "dep_files_found": {
@@ -319,6 +324,11 @@ while not inference_succeeded:
 {
   "repo_name": "string",
   "repo_url": "string",
+  "overview": {
+    "title": "string|null",
+    "tagline": "string|null",
+    "paper_url": "string|null"
+  },
   "status": "success|partial|failed",
   "dep_type": "string",
   "dep_type_label": "string",
@@ -386,6 +396,7 @@ while not inference_succeeded:
 ```
 
 **埋め込み規則**:
+- `overview` → `analysis.json.overview` をそのまま転記。各フィールドは `null` 許容
 - `usage` → Step 1.5 の結果をそのまま。取れなかった階層は `null`（`advanced` のみ空配列 `[]`）
 - `samples` → Step 1.6 の結果をそのまま。パスは `reports/` 相対（例: `samples/input/left.png`）
 - `next_actions` → Step 1.7 の結果をそのまま。`report.html` とターミナル出力はここから読む
@@ -443,6 +454,7 @@ chmod +x reports/view.sh
 | `{{REPO_NAME}}` | `analysis.json.repo_name` |
 | `{{REPO_URL}}` | `analysis.json.repo_url` |
 | `{{TIMESTAMP}}` | 現在日時（ISO 8601） |
+| `{{OVERVIEW_BLOCK}}` | `report.json.overview` をレンダリング |
 | `{{STATUS}}` | `report.json.status` |
 | `{{DEP_TYPE}}` | `analysis.json.dep_type` + `dep_type_label` |
 | `{{TOTAL_ATTEMPTS}}` | `attempts.tsv` のデータ行数 |
@@ -457,6 +469,21 @@ chmod +x reports/view.sh
 | `{{PIXI_TOML_CONTENT}}` | pixi.toml の内容（HTML エスケープ済み） |
 | `{{ERRORS_LIST}}` | エラーの `<li>` リスト（`failed`/`partial` 時のみ） |
 | `{{PLUGIN_VERSION}}` | `plugin.json.version` |
+
+#### overview ブロックのレンダリング
+
+**`{{OVERVIEW_BLOCK}}`**:
+
+```html
+<!-- title が非 null の場合のみ -->
+<h3 class="overview-title">{title}</h3>
+<!-- tagline が非 null の場合のみ -->
+<p class="overview-tagline">{tagline}</p>
+<!-- paper_url が非 null の場合のみ -->
+<p class="overview-link"><a href="{paper_url}">{paper_url}</a></p>
+```
+
+3 フィールド全て `null` の場合: `<p class="usage-empty">Could not extract overview from README.</p>`
 
 #### usage ブロックのレンダリング
 

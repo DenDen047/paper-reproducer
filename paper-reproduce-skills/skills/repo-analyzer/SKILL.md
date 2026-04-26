@@ -9,6 +9,20 @@ allowed-tools: Bash Read Glob Grep Write
 
 CWD を解析し `reports/analysis.json` に出力。`reports/` は Phase 0 で作成済み。
 
+## Step 0.5: Project Overview 抽出
+
+人間向けの 1-2 文要約と論文リンクを `analysis.json.overview` に記録。Phase 4 で `report.html` 冒頭に表示。
+
+抽出項目:
+
+| キー | 抽出方針 | フォールバック |
+|---|---|---|
+| `title` | `README.md` の最初の `^# ` 見出し | `null` |
+| `tagline` | README から「このリポジトリ／論文が何をするものか」が読者に伝わる 1-2 文を要約 (最大 200 字、改行は半角空白に圧縮)。候補: H1 直下段落 / abstract / Introduction / "About" / "Overview"。直訳ではなく、必要なら複数箇所を統合してよい | `null` |
+| `paper_url` | README 中の `arxiv.org/abs/` URL → プロジェクトページ URL | `null` |
+
+抽出失敗時は当該フィールドを `null`。`title` が `repo_name` と完全一致する場合も `null`（重複表示回避）。
+
 ## Step 1: 依存ファイル検出
 
 ```bash

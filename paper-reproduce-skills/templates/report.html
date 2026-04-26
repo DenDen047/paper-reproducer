@@ -20,6 +20,10 @@
   .status-success { background: var(--success); }
   .status-partial { background: var(--partial); }
   .status-failed  { background: var(--failed); }
+  .overview-title { font-size: 1rem; margin-bottom: 0.5rem; }
+  .overview-tagline { font-size: 0.95rem; margin-bottom: 0.5rem; }
+  .overview-link { font-size: 0.85rem; }
+  .overview-link a { color: var(--muted); }
   .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
   .summary-item label { display: block; font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .summary-item .value { font-size: 1.25rem; font-weight: 600; }
@@ -84,6 +88,12 @@
 
 <h1>{{REPO_NAME}}</h1>
 <p class="meta"><a href="{{REPO_URL}}">{{REPO_URL}}</a> &middot; Generated {{TIMESTAMP}}</p>
+
+<!-- ===== Overview ===== -->
+<h2>Overview</h2>
+<div class="card overview">
+{{OVERVIEW_BLOCK}}
+</div>
 
 <!-- ===== Summary ===== -->
 <h2>Summary</h2>

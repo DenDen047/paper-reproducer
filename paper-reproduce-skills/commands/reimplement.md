@@ -413,6 +413,19 @@ while not inference_succeeded:
 
 **MUST NOT**: Tier 3 到達時に `partial` へデフォルト落としする。
 
+**TSV 値検証**（Step 2 開始時に必須）: `attempts.tsv` の各列が `experiment-loop/SKILL.md` の正規形に従っているか確認、違反があれば `report.json` 生成前に修正。
+
+```bash
+# phase: phase0–phase4
+awk -F'\t' 'NR>1 && $3 !~ /^phase[0-4]$/ {print "INVALID phase row "NR": "$3}' reports/attempts.tsv
+# result: success / failed / crashed / timed_out
+awk -F'\t' 'NR>1 && $6 !~ /^(success|failed|crashed|timed_out)$/ {print "INVALID result row "NR": "$6}' reports/attempts.tsv
+# error_tier: tier0 / tier1 / tier2-config / tier2-hardware / tier3 / -
+awk -F'\t' 'NR>1 && $7 !~ /^(tier[013]|tier2-(config|hardware)|-)$/ {print "INVALID tier row "NR": "$7}' reports/attempts.tsv
+```
+
+検出時は `sed -i` で正規形に置換（例: `fail`→`failed`、`crash`→`crashed`、`timeout`→`timed_out`、`1`→`tier1`、`T1`→`tier1`、`Tier 1`→`tier1`、`2`→`phase2`）。違反ゼロ確認後に次の手順へ。
+
 **duration_total_s**: `attempts.tsv` 全 duration_s の合算。
 
 ### Step 3: reports/report.html 生成（目視確認）

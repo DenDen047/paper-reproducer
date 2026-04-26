@@ -31,7 +31,12 @@
   th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
   th { background: var(--bg); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
   tr.result-success td:nth-child(6) { color: var(--success); font-weight: 600; }
-  tr.result-fail td:nth-child(6)    { color: var(--failed); font-weight: 600; }
+  tr.result-failed td:nth-child(6),
+  tr.result-crashed td:nth-child(6),
+  tr.result-timed_out td:nth-child(6),
+  tr.result-fail td:nth-child(6),
+  tr.result-crash td:nth-child(6),
+  tr.result-timeout td:nth-child(6) { color: var(--failed); font-weight: 600; }
   .attempt-legend { margin-bottom: 0.75rem; font-size: 0.85rem; }
   .attempt-legend summary { cursor: pointer; color: var(--muted); padding: 0.25rem 0; }
   .attempt-legend summary:hover { color: var(--text); }

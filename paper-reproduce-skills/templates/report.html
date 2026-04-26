@@ -30,8 +30,8 @@
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
   th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
   th { background: var(--bg); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
-  tr.result-success td:nth-child(5) { color: var(--success); font-weight: 600; }
-  tr.result-fail td:nth-child(5)    { color: var(--failed); font-weight: 600; }
+  tr.result-success td:nth-child(6) { color: var(--success); font-weight: 600; }
+  tr.result-fail td:nth-child(6)    { color: var(--failed); font-weight: 600; }
   .artifacts ul { list-style: none; }
   .artifacts li { padding: 0.25rem 0; font-family: monospace; font-size: 0.85rem; }
   .artifacts li::before { content: "📄 "; }
@@ -153,6 +153,7 @@
         <th>Commit</th>
         <th>Phase</th>
         <th>Action</th>
+        <th>Intent</th>
         <th>Result</th>
         <th>Tier</th>
         <th>Error Summary</th>

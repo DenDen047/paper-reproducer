@@ -41,7 +41,7 @@ CV 論文の GitHub リポジトリを Pixi 環境で全自動再現する。以
 5. `mkdir -p reports`
 6. `reports/attempts.tsv` をヘッダー行で初期化:
    ```
-   attempt\tcommit\tphase\taction\tresult\terror_tier\terror_summary\tduration_s
+   attempt\tcommit\tphase\taction\tintent\tresult\terror_tier\terror_summary\tduration_s
    ```
 7. `.gitignore` に `reports/attempts.tsv` 追加
 8. `ls` で依存ファイル一覧取得（Phase 1 事前情報）

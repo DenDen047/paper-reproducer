@@ -82,8 +82,8 @@
 <body>
 
 <div id="file-protocol-warning">
-  <strong>⚠️ 3D ビューワはブラウザの CORS ポリシーにより file:// では動きません</strong>
-  <p>このディレクトリで <code>./view.sh</code> を実行して <code>http://localhost:8000/report.html</code> から開いてください。</p>
+  <strong>⚠️ 3D viewers do not work over file:// due to browser CORS policy</strong>
+  <p>Run <code>./view.sh</code> in this directory and open <code>http://localhost:8000/report.html</code>.</p>
 </div>
 
 <h1>{{REPO_NAME}}</h1>
@@ -125,20 +125,20 @@
 </div>
 
 <!-- ===== Usage Guide ===== -->
-<h2>使い方</h2>
+<h2>Usage Guide</h2>
 <div class="card usage">
   <h3>Quickstart</h3>
 {{QUICKSTART_BLOCK}}
 
-  <h3>発展的使い方</h3>
+  <h3>Advanced Usage</h3>
 {{ADVANCED_BLOCK}}
 
-  <h3>開発者向け</h3>
+  <h3>Developer Guide</h3>
 {{DEVELOPER_BLOCK}}
 </div>
 
 <!-- ===== Sample I/O ===== -->
-<h2>サンプル入出力</h2>
+<h2>Sample I/O</h2>
 <div class="card samples">
 {{SAMPLES_BLOCK}}
 </div>
@@ -164,7 +164,7 @@
     </tbody>
   </table>
 </div>
-<!-- ASSERTION: tbody の行数 == reports/attempts.tsv のデータ行数。不一致は禁止。 -->
+<!-- ASSERTION: tbody row count == reports/attempts.tsv data row count. Mismatch is forbidden. -->
 
 <!-- ===== Artifacts ===== -->
 <h2>Generated Artifacts</h2>
@@ -257,7 +257,7 @@ document.querySelectorAll('pre').forEach(function(pre) {
     THREE = await import('three');
     ({ OrbitControls } = await import('three/addons/controls/OrbitControls.js'));
   } catch (err) {
-    const msg = `Three.js の読み込みに失敗しました: ${err.message}`;
+    const msg = `Failed to load Three.js: ${err.message}`;
     [...gsplatEls, ...pcEls, ...meshEls].forEach(el => {
       el.innerHTML = `<div class="viewer-error">${msg}</div>`;
     });
@@ -317,7 +317,7 @@ document.querySelectorAll('pre').forEach(function(pre) {
       ({ PLYLoader } = await import('three/addons/loaders/PLYLoader.js'));
     } catch (err) {
       pcEls.forEach(el => {
-        el.innerHTML = `<div class="viewer-error">PLYLoader の読み込みに失敗: ${err.message}</div>`;
+        el.innerHTML = `<div class="viewer-error">Failed to load PLYLoader: ${err.message}</div>`;
       });
       pcEls.length = 0;
     }
@@ -372,7 +372,7 @@ document.querySelectorAll('pre').forEach(function(pre) {
         },
         undefined,
         (err) => {
-          el.innerHTML = `<div class="viewer-error">点群の読み込みに失敗: ${err.message || err}</div>`;
+          el.innerHTML = `<div class="viewer-error">Failed to load point cloud: ${err.message || err}</div>`;
         }
       );
 
@@ -401,7 +401,7 @@ document.querySelectorAll('pre').forEach(function(pre) {
       ({ GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'));
     } catch (err) {
       meshEls.forEach(el => {
-        el.innerHTML = `<div class="viewer-error">GLTFLoader の読み込みに失敗: ${err.message}</div>`;
+        el.innerHTML = `<div class="viewer-error">Failed to load GLTFLoader: ${err.message}</div>`;
       });
     }
     try {
@@ -422,7 +422,7 @@ document.querySelectorAll('pre').forEach(function(pre) {
       scene.add(dirLight);
 
       const onError = (err) => {
-        el.innerHTML = `<div class="viewer-error">メッシュの読み込みに失敗: ${err.message || err}</div>`;
+        el.innerHTML = `<div class="viewer-error">Failed to load mesh: ${err.message || err}</div>`;
       };
 
       if ((ext === 'glb' || ext === 'gltf') && GLTFLoader) {
@@ -454,7 +454,7 @@ document.querySelectorAll('pre').forEach(function(pre) {
           onError
         );
       } else {
-        onError(new Error(`未対応の拡張子: .${ext}`));
+        onError(new Error(`Unsupported extension: .${ext}`));
       }
     });
   }
@@ -466,7 +466,7 @@ document.querySelectorAll('pre').forEach(function(pre) {
       GaussianSplats3D = await import('@mkkellogg/gaussian-splats-3d');
     } catch (err) {
       gsplatEls.forEach(el => {
-        el.innerHTML = `<div class="viewer-error">gaussian-splats-3d の読み込みに失敗: ${err.message}</div>`;
+        el.innerHTML = `<div class="viewer-error">Failed to load gaussian-splats-3d: ${err.message}</div>`;
       });
       return;
     }
@@ -492,10 +492,10 @@ document.querySelectorAll('pre').forEach(function(pre) {
           })
           .then(() => viewer.start())
           .catch((err) => {
-            el.innerHTML = `<div class="viewer-error">3DGS の読み込みに失敗: ${err.message || err}</div>`;
+            el.innerHTML = `<div class="viewer-error">Failed to load 3DGS: ${err.message || err}</div>`;
           });
       } catch (err) {
-        el.innerHTML = `<div class="viewer-error">3DGS ビューワ初期化失敗: ${err.message}</div>`;
+        el.innerHTML = `<div class="viewer-error">Failed to initialize 3DGS viewer: ${err.message}</div>`;
       }
     });
   }

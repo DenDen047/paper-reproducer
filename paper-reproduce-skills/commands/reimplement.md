@@ -453,7 +453,7 @@ chmod +x reports/view.sh
 |---|---|
 | `{{REPO_NAME}}` | `analysis.json.repo_name` |
 | `{{REPO_URL}}` | `analysis.json.repo_url` |
-| `{{TIMESTAMP}}` | 現在日時（ISO 8601） |
+| `{{TIMESTAMP}}` | 現在日時（形式: `YYYY-MM-DD HH:MM:SS ±HH:MM`） |
 | `{{OVERVIEW_BLOCK}}` | `report.json.overview` をレンダリング |
 | `{{STATUS}}` | `report.json.status` |
 | `{{DEP_TYPE}}` | `analysis.json.dep_type` + `dep_type_label` |

@@ -32,6 +32,15 @@
   th { background: var(--bg); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
   tr.result-success td:nth-child(6) { color: var(--success); font-weight: 600; }
   tr.result-fail td:nth-child(6)    { color: var(--failed); font-weight: 600; }
+  .attempt-legend { margin-bottom: 0.75rem; font-size: 0.85rem; }
+  .attempt-legend summary { cursor: pointer; color: var(--muted); padding: 0.25rem 0; }
+  .attempt-legend summary:hover { color: var(--text); }
+  .attempt-legend[open] { padding: 0.5rem 1rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
+  .attempt-legend dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0.25rem 0 0.5rem; }
+  .attempt-legend dt { font-family: monospace; font-size: 0.8rem; color: var(--text); }
+  .attempt-legend dd { color: var(--muted); font-size: 0.85rem; }
+  .attempt-legend h4 { font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0.25rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .attempt-legend h4:first-of-type { margin-top: 0; }
   .artifacts ul { list-style: none; }
   .artifacts li { padding: 0.25rem 0; font-family: monospace; font-size: 0.85rem; }
   .artifacts li::before { content: "📄 "; }
@@ -145,6 +154,26 @@
 
 <!-- ===== Attempt History ===== -->
 <h2>Attempt History</h2>
+<details class="attempt-legend">
+  <summary>Column legend (Phase / Tier values)</summary>
+  <h4>Phase</h4>
+  <dl>
+    <dt>phase0</dt><dd>Initialize / Pre-flight (no attempt rows; Tier 0 fixes do not consume #).</dd>
+    <dt>phase1</dt><dd>Repository analysis (no attempt rows).</dd>
+    <dt>phase2</dt><dd>Pixi environment build and dependency install.</dd>
+    <dt>phase3</dt><dd>Model download and demo / inference run.</dd>
+    <dt>phase4</dt><dd>Report generation (no attempt rows).</dd>
+  </dl>
+  <h4>Tier (failure classification)</h4>
+  <dl>
+    <dt>tier0</dt><dd>Pre-flight violation. ~10s fix that does not consume an attempt.</dd>
+    <dt>tier1</dt><dd>Trivial auto-fix (missing module / file / GUI patch).</dd>
+    <dt>tier2-config</dt><dd>Configuration change required (pixi.toml / args / env vars).</dd>
+    <dt>tier2-hardware</dt><dd>Resource shortage (GPU OOM / RAM OOM / GPU arch mismatch).</dd>
+    <dt>tier3</dt><dd>Fundamental rethink. Manual intervention required.</dd>
+    <dt>-</dt><dd>Not applicable (used on success rows).</dd>
+  </dl>
+</details>
 <div class="card" style="overflow-x: auto;">
   <table>
     <thead>

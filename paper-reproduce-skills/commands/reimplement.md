@@ -459,7 +459,7 @@ chmod +x reports/view.sh
 | `{{DEP_TYPE}}` | `analysis.json.dep_type` + `dep_type_label` |
 | `{{TOTAL_ATTEMPTS}}` | `attempts.tsv` のデータ行数 |
 | `{{DURATION_TOTAL}}` | 全 duration_s 合算（例: "2m 34s"） |
-| `{{ATTEMPTS_ROWS}}` | `attempts.tsv` 各行を `<tr>` 化 |
+| `{{ATTEMPTS_ROWS}}` | `attempts.tsv` 各行を `<tr class="result-{result}">` 化（9 列、TSV と同形・同順）。`result-*` class は Result 列の色付けに使用 |
 | `{{ARTIFACTS_LIST}}` | 生成物の `<li>` リスト |
 | `{{QUICKSTART_BLOCK}}` | `usage.quickstart` をレンダリング |
 | `{{ADVANCED_BLOCK}}` | `usage.advanced` をレンダリング |

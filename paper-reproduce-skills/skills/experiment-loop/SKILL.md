@@ -30,7 +30,7 @@ attempt\tcommit\tphase\taction\tintent\tresult\terror_tier\terror_summary\tdurat
 |---|---|
 | attempt | 1 からの連番 |
 | commit | git short hash (7 文字) |
-| phase | `env-build` / `inference` / `verify` |
+| phase | `phase0`–`phase4` (`commands/reimplement.md` の macro phase 番号と一致)。試行が発生するのは `phase2` (Pixi 環境構築) / `phase3` (推論実行) のみ。`phase0`/`phase1`/`phase4` は試行ループがないため通常出現しない |
 | action | 導入した変更（例: `bump_libc_2.31`、`add_c_cxx_compiler`） |
 | intent | この試行を打った理由を 1-2 文で記述（最大 200 字、単一行、タブ禁止） |
 | result | 検証ステップの結果: `success` / `fail` / `crash` / `timeout` |

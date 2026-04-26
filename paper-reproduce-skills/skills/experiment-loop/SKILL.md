@@ -32,11 +32,11 @@ attempt\tcommit\tphase\taction\tintent\tresult\terror_tier\terror_summary\tdurat
 | commit | git short hash (7 文字) |
 | phase | `phase0`–`phase4` のみ（`commands/reimplement.md` の macro phase と一致）。試行発生は `phase2`/`phase3` のみ。`2` / `Phase2` / `env-build` 禁止 |
 | action | 導入した変更（例: `bump_libc_2.31`、`add_c_cxx_compiler`） |
-| intent | この試行を打った理由を 1-2 文で記述（最大 200 字、単一行、タブ禁止） |
+| intent | 試行の動機を 1-2 文で記述（最大 200 字、単一行、タブ禁止） |
 | result | `success` / `failed` / `crashed` / `timed_out` のみ（過去形統一）。装飾（`success(dry-run)` 等）は `error_summary` へ |
 | error_tier | `tier0` / `tier1` / `tier2-config` / `tier2-hardware` / `tier3` / `-` のみ。`1` / `T1` / `Tier 1` / 空文字 禁止 |
 | error_summary | 失敗時の 1 行要約 |
-| duration_s | 実測秒数（START_TIME/END_TIME から算出） |
+| duration_s | `date +%s` 実測値のみ。手動見積もり禁止。長時間処理（DL / 学習）も START_TIME / END_TIME で囲う |
 
 ### action と result の主語
 
@@ -67,12 +67,14 @@ action が「何を変えたか」(snake_case ラベル) なのに対し、inten
 
 ### ログ記録
 
+`date +%s` は操作の直前/直後に呼ぶ。後付け見積もり禁止
+
 ```bash
 # 試行開始（省略禁止）
 START_TIME=$(date +%s)
-INTENT="..."  # 1-2 文で動機を記述。空 / 未設定は Tier 0 違反
+INTENT="..."  # 動機 1-2 文。空 / 未設定は Tier 0 違反
 
-# 操作実行
+# 操作実行（DL・学習・推論など長時間処理もこの内側）
 
 # 試行完了（成功・失敗問わず省略禁止）
 END_TIME=$(date +%s)
@@ -81,17 +83,21 @@ COMMIT=$(git rev-parse --short HEAD)
 echo -e "${ATTEMPT}\t${COMMIT}\t${PHASE}\t${ACTION}\t${INTENT}\t${RESULT}\t${TIER}\t${SUMMARY}\t${DURATION}" >> reports/attempts.tsv
 ```
 
+長時間処理を別 attempt として独立記録するのは可。START_TIME 漏れは `git log --format=%at` で逆算補填。
+
 ### MUST NOT
 
-- 失敗試行を記録せずに次へ進む
-- duration_s を 0 / 空で埋める
-- intent を空 / 未設定で記録する
-- intent にタブ / 改行を含める（TSV 破壊）
+- 失敗試行の記録省略
+- duration_s の 0 / 空埋め
+- duration_s の手動見積もり
+- 長時間処理（DL / 学習）の START_TIME/END_TIME 外実行
+- intent の空 / 未設定
+- intent へのタブ / 改行混入（TSV 破壊）
 - `result` の非正規値（`fail` / `partial` / 装飾付き `success(...)`。正規形は `success` / `failed` / `crashed` / `timed_out`）
 - `error_tier` の非正規値（`1` / `T1` / `Tier 1` / 空。正規形は `tier0`–`tier3` / `tier2-config` / `tier2-hardware` / `-`）
 - `phase` の非正規値（`2` / `Phase2` / `env-build`。正規形は `phase0`–`phase4`）
-- `report.html` の試行数と `attempts.tsv` の行数を不一致にする
-- exit code 0 の harmless warning（`iJIT_NotifyEvent` 等）を追って pixi.toml を書き換える
+- `report.html` 試行数と `attempts.tsv` 行数の不一致
+- harmless warning（exit 0 の `iJIT_NotifyEvent` 等）追跡による pixi.toml 改変
 
 ## Git-based State Management
 

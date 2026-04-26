@@ -411,7 +411,7 @@ while not inference_succeeded:
 - `partial`: pixi install 成功 + 推論 1 件以上成功 + 一部未達
 - `success`: pixi install 成功 + quickstart 推論が全成功
 
-**MUST NOT**: Tier 3 到達時に `partial` へデフォルト落としする。
+**MUST NOT**: Tier 3 到達時の `partial` へのデフォルト落とし。
 
 **TSV 値検証**（Step 2 開始時に必須）: `attempts.tsv` の各列が `experiment-loop/SKILL.md` の正規形に従っているか確認、違反があれば `report.json` 生成前に修正。
 
@@ -426,7 +426,18 @@ awk -F'\t' 'NR>1 && $7 !~ /^(tier[013]|tier2-(config|hardware)|-)$/ {print "INVA
 
 検出時は `sed -i` で正規形に置換（例: `fail`→`failed`、`crash`→`crashed`、`timeout`→`timed_out`、`1`→`tier1`、`T1`→`tier1`、`Tier 1`→`tier1`、`2`→`phase2`）。違反ゼロ確認後に次の手順へ。
 
-**duration_total_s**: `attempts.tsv` 全 duration_s の合算。
+**duration_total_s** の算出（過小見積もり防止のクロスチェック必須）:
+
+```bash
+SUM=$(awk -F'\t' 'NR>1 {s+=$9} END {print s+0}' reports/attempts.tsv)
+FIRST=$(git log --format='%at' --reverse | head -1)
+LAST=$(git log --format='%at' | head -1)
+SPAN=$((LAST - FIRST))
+# 大きい方を採用。計測漏れで合算が過小でも git タイムスタンプが下限を保証
+DURATION_TOTAL=$(( SUM > SPAN ? SUM : SPAN ))
+```
+
+`SUM < SPAN * 0.7` の場合は計測漏れの兆候。`note` に「duration_s 一部欠落」記載可、ただし `duration_total_s` は必ず大きい方（`SPAN`）を採用。
 
 ### Step 3: reports/report.html 生成（目視確認）
 
@@ -471,7 +482,7 @@ chmod +x reports/view.sh
 | `{{STATUS}}` | `report.json.status` |
 | `{{DEP_TYPE}}` | `analysis.json.dep_type` + `dep_type_label` |
 | `{{TOTAL_ATTEMPTS}}` | `attempts.tsv` のデータ行数 |
-| `{{DURATION_TOTAL}}` | 全 duration_s 合算（例: "2m 34s"） |
+| `{{DURATION_TOTAL}}` | `report.json.duration_total_s` を `Hh Mm Ss` 形式に整形（例: "2m 34s" / "1h 11m 5s"） |
 | `{{ATTEMPTS_ROWS}}` | `attempts.tsv` 各行を `<tr class="result-{result}">` 化（9 列、TSV と同形・同順）。`result-*` class は Result 列の色付けに使用 |
 | `{{ARTIFACTS_LIST}}` | 生成物の `<li>` リスト |
 | `{{QUICKSTART_BLOCK}}` | `usage.quickstart` をレンダリング |

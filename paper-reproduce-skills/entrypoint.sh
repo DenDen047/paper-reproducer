@@ -16,6 +16,6 @@ if [[ -n "$libc_ver" ]] && [[ "$(printf '%s\n2.31\n' "$libc_ver" | sort -V | hea
 fi
 
 exec claude \
-  --dangerously-skip-permissions \
+  --permission-mode auto \
   --plugin-dir /paper-reproduce-skills \
   "$@"

@@ -15,11 +15,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Claude Code は Node.js ランタイムが必要
+# Node.js は MCP サーバ等が要求する可能性があるため残す
+# (Claude Code 本体は native binary なので Node ランタイムには依存しない)
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install -g @anthropic-ai/claude-code
+    && rm -rf /var/lib/apt/lists/*
 
 COPY . /paper-reproduce-skills
 
@@ -44,6 +44,13 @@ RUN mkdir -p /home/claude/.cache/rattler \
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
 USER claude
+
+# Claude Code 本体は native installer で claude ユーザーのホームに置く。
+# `npm install -g` だと /usr/lib/node_modules/ が root 所有になり、
+# 非 root 実行下では auto-update が失敗するため。
+# https://code.claude.com/docs/en/setup
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH=/home/claude/.local/bin:$PATH
 
 WORKDIR /workspace
 

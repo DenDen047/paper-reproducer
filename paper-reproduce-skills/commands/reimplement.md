@@ -22,6 +22,7 @@ CV 論文の GitHub リポジトリを Pixi 環境で全自動再現する。以
 └── reports/
     ├── analysis.json    # Phase 1
     ├── attempts.tsv     # 全試行ログ（git 管理外）
+    ├── environment.json # Phase 4 Step 1.4 実行環境スナップショット
     ├── report.json      # Phase 4 機械可読
     ├── report.html      # Phase 4 目視確認
     └── samples/         # Phase 4 入出力サンプル
@@ -268,6 +269,69 @@ while not inference_succeeded:
 
 `cleaned.yml`（Type A2/A3）、`build.log` / `inference.log`（attempts.tsv に集約済み）、`_headless_patch.py`（Phase 3 で作成時）を削除。
 
+### Step 1.4: 実行環境の記録
+
+ホスト・OS・GPU・CUDA driver を `reports/environment.json` に保存し、Step 2 で `report.json.environment` に転記する。「どのマシンで再現したのか」「telemetry の数字をどの GPU 基準で読むか」を、レポートを開いた瞬間に判断できるようにする。
+
+```python
+import json, platform, socket, datetime, subprocess
+
+def run(cmd):
+    try:
+        out = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL).strip()
+        return out or None
+    except Exception:
+        return None
+
+def cpu_model():
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return None
+
+def ram_gb():
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    return round(int(line.split()[1]) / 1024 / 1024, 1)
+    except Exception:
+        return None
+
+gpus = []
+nv = run("nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,noheader,nounits")
+if nv:
+    for line in nv.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) >= 4 and parts[0].isdigit():
+            gpus.append({
+                "index": int(parts[0]),
+                "name": parts[1],
+                "memory_total_mb": int(parts[2]),
+                "driver_version": parts[3],
+            })
+
+env = {
+    "hostname": socket.gethostname(),
+    "os": run("grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '\"'"),
+    "kernel": platform.release(),
+    "cpu": cpu_model(),
+    "ram_total_gb": ram_gb(),
+    "gpus": gpus,
+    "cuda_version": run("nvidia-smi --query | grep -m1 'CUDA Version' | awk '{print $4}'"),
+    "python_version": platform.python_version(),
+    "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+}
+with open("reports/environment.json", "w") as f:
+    json.dump(env, f, indent=2)
+```
+
+取得不可なフィールドは `null`。GPU 不在環境では `gpus=[]`、`cuda_version=null`。
+
 ### Step 1.5: 使い方情報の抽出
 
 **`usage-documenter` スキル参照。** 3 段階（Quickstart / Advanced / Developer）で `usage` オブジェクトを生成し、Step 2 で `report.json` に組み込む。
@@ -344,6 +408,24 @@ while not inference_succeeded:
   "pixi_toml_hash": "string",
   "inference_output": "string|null",
   "errors": ["string"],
+  "environment": {
+    "hostname": "string|null",
+    "os": "string|null",
+    "kernel": "string|null",
+    "cpu": "string|null",
+    "ram_total_gb": "number|null",
+    "gpus": [
+      {
+        "index": "number",
+        "name": "string",
+        "memory_total_mb": "number",
+        "driver_version": "string|null"
+      }
+    ],
+    "cuda_version": "string|null",
+    "python_version": "string|null",
+    "timestamp": "string"
+  },
   "telemetry": {
     "peak_vram_mb": "number|null",
     "model_load_time_s": "number|null",
@@ -405,6 +487,7 @@ while not inference_succeeded:
 
 **埋め込み規則**:
 - `overview` → `analysis.json.overview` をそのまま転記。各フィールドは `null` 許容
+- `environment` → Step 1.4 の `reports/environment.json` をそのまま転記
 - `usage` → Step 1.5 の結果をそのまま。取れなかった階層は `null`（`advanced` のみ空配列 `[]`）
 - `samples` → Step 1.6 の結果をそのまま。パスは `reports/` 相対（例: `samples/input/left.png`）
 - `next_actions` → Step 1.7 の結果をそのまま。`report.html` とターミナル出力はここから読む
@@ -487,6 +570,7 @@ chmod +x reports/view.sh
 | `{{REPO_URL}}` | `analysis.json.repo_url` |
 | `{{TIMESTAMP}}` | 現在日時（形式: `YYYY-MM-DD HH:MM:SS ±HH:MM`） |
 | `{{OVERVIEW_BLOCK}}` | `report.json.overview` をレンダリング |
+| `{{ENVIRONMENT_BLOCK}}` | `report.json.environment` をレンダリング |
 | `{{STATUS}}` | `report.json.status` |
 | `{{DEP_TYPE}}` | `analysis.json.dep_type` + `dep_type_label` |
 | `{{TOTAL_ATTEMPTS}}` | `attempts.tsv` のデータ行数 |
@@ -516,6 +600,29 @@ chmod +x reports/view.sh
 ```
 
 3 フィールド全て `null` の場合: `<p class="usage-empty">Could not extract overview from README.</p>`
+
+#### environment ブロックのレンダリング
+
+**`{{ENVIRONMENT_BLOCK}}`** — 各 `summary-item` を順に並べる:
+
+| label | value（null は `—`） |
+|---|---|
+| `Hostname` | `{hostname}` |
+| `OS` | `{os}` |
+| `CPU` | `{cpu}` |
+| `RAM` | `{ram_total_gb} GB` |
+| `GPU {index}` | `{name} ({memory_total_mb / 1024:.1f} GB)` — gpus[] 各要素を 1 item ずつ |
+| `CUDA / Driver` | `CUDA {cuda_version} / driver {gpus[0].driver_version}` — gpus が空配列なら省略 |
+| `Python` | `{python_version}` |
+
+```html
+<div class="summary-grid">
+  <div class="summary-item"><label>{label}</label><span class="value">{value}</span></div>
+  ...
+</div>
+```
+
+`environment` 自体が `null` / 空 dict の場合: `<p class="usage-empty">Environment not recorded.</p>`
 
 #### usage ブロックのレンダリング
 

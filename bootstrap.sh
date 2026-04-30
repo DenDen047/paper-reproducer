@@ -127,17 +127,35 @@ else
 fi
 
 # --- GPU 検出 + 枚数カウント ---
+# 単一モードは GPU_FLAGS=(--gpus all) のまま使う。
+# 並列バッチは外部プロセス未使用の GPU だけを選び、--gpus "device=N" + flock で
+# 1 GPU 1 コンテナの排他を保証する (silent な CUDA OOM → CPU fallback を防ぐ)。
 GPU_FLAGS=()
 NUM_GPUS=0
+FREE_GPUS=()
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
   GPU_FLAGS=(--gpus all)
   # nvidia-smi -L の行数が GPU 枚数
   NUM_GPUS=$(nvidia-smi -L 2>/dev/null | grep -c '^GPU ' || true)
   [[ -z "$NUM_GPUS" ]] && NUM_GPUS=0
-  log "GPU detected (count=$NUM_GPUS); passing --gpus all"
+  # 500MB 未満を「空き」と判定（CUDA context init で 100-300MB 取られるのは正常範囲）
+  for ((i=0; i<NUM_GPUS; i++)); do
+    used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$i" 2>/dev/null | tr -d ' ')
+    if [[ -n "$used" && "$used" -lt 500 ]]; then
+      FREE_GPUS+=("$i")
+    fi
+  done
+  log "GPU detected (total=$NUM_GPUS, free=${#FREE_GPUS[@]}: ${FREE_GPUS[*]:-none})"
+  if (( NUM_GPUS > 0 && ${#FREE_GPUS[@]} == 0 )); then
+    log "WARNING: all $NUM_GPUS GPU(s) busy externally; batch mode will run CPU-only"
+  fi
 else
   log "no GPU detected; running CPU-only"
 fi
+
+# 並列バッチ用 GPU ロック ディレクトリ
+LOCK_DIR="${LOCK_DIR:-/tmp/paper-reproduce-locks}"
+mkdir -p "$LOCK_DIR"
 
 mkdir -p "$HOME/.claude"
 
@@ -225,7 +243,8 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
 fi
 
 # ---------- 並列バッチモード (tmux) ----------
-command -v tmux >/dev/null 2>&1 || die "tmux not found on PATH (required for batch mode)"
+command -v tmux  >/dev/null 2>&1 || die "tmux not found on PATH (required for batch mode)"
+command -v flock >/dev/null 2>&1 || die "flock not found on PATH (util-linux; required for batch GPU lock)"
 
 SESSION_NAME="paper-reproduce-$(date +%H%M%S)"
 
@@ -246,13 +265,18 @@ docker_cmd_for() {
   local idx="$1"
   local name="${REPO_NAMES[idx]}"
 
-  local gpu_env=()
-  if (( NUM_GPUS > 0 )); then
-    local gpu_idx=$(( idx % NUM_GPUS ))
-    gpu_env=(-e "CUDA_VISIBLE_DEVICES=$gpu_idx")
+  # 並列バッチは --gpus "device=N" で 1 GPU だけをコンテナに公開し、
+  # flock でそのスロットを 1 ジョブに排他。重複起動時は flock が後続を直列化する。
+  # FREE_GPUS が空 (CPU-only or 全 GPU 占有中) のときは GPU 関連フラグを付けない。
+  local gpu_args=()
+  local prefix=""
+  if (( ${#FREE_GPUS[@]} > 0 )); then
+    local gpu_idx="${FREE_GPUS[$(( idx % ${#FREE_GPUS[@]} ))]}"
+    gpu_args=(--gpus "device=$gpu_idx")
+    prefix="flock -x $LOCK_DIR/gpu-$gpu_idx.lock"
   fi
 
-  echo docker run --rm -it \
+  echo $prefix docker run --rm -it \
     -v "$WORKSPACE_DIR:/workspaces" \
     -v "$HOME/.claude:/home/claude/.claude" \
     "${CLAUDE_JSON_MOUNT[@]}" \
@@ -261,8 +285,7 @@ docker_cmd_for() {
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$name" \
     --shm-size=8g \
-    "${GPU_FLAGS[@]}" \
-    "${gpu_env[@]}" \
+    "${gpu_args[@]}" \
     "${ENV_FLAGS[@]}" \
     "$IMAGE_NAME"
 }

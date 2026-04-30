@@ -49,7 +49,7 @@ README / スクリプト / Phase 3 の成功コマンドから使い方を 3 段
 
 1. attempts.tsv から Phase 3 成功コマンド → `verified: true`
    ```bash
-   awk -F'\t' '$3=="inference" && $5=="success" {print $4}' reports/attempts.tsv | tail -1
+   awk -F'\t' '$3=="phase3" && $6=="success" {print $4}' reports/attempts.tsv | tail -1
    ```
 2. なければ `analysis.json.demo_commands[0]` → `verified: false` + source
 3. なければ `null`

@@ -212,20 +212,27 @@ Docker 内は headless。`/etc/headless_patches/_headless_patch.py` を優先コ
 推論時に取得し `reports/telemetry.json` に出力（Phase 4 が読む）:
 
 ```python
-import time, torch, json, subprocess
-torch.cuda.reset_peak_memory_stats()
+import time, torch, json
+if torch.cuda.is_available():
+    torch.cuda.reset_peak_memory_stats()
 load_t0 = time.time()
 model = ...  # モデルロード
 load_t1 = time.time()
 inf_t0 = time.time()
 output = model(input)
 inf_t1 = time.time()
-device = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
+
+# Telemetry honesty: model が実際に乗っているデバイスを参照する。
+# torch.cuda.is_available() だと OOM ladder Step 5 の CPU fallback 後にも True のままで、
+# device="<GPU 名>" を出力する silent false-success を生む。
+on_gpu = next(model.parameters()).device.type == "cuda"
+device = torch.cuda.get_device_name(0) if on_gpu else "cpu"
 json.dump({
-  "peak_vram_mb": int(torch.cuda.max_memory_allocated() / 1e6) if torch.cuda.is_available() else None,
+  "peak_vram_mb": int(torch.cuda.max_memory_allocated() / 1e6) if on_gpu else None,
   "model_load_time_s": round(load_t1 - load_t0, 2),
   "inference_fps": round(1.0 / (inf_t1 - inf_t0), 2) if (inf_t1 > inf_t0) else None,
   "device": device,
+  "fallback_to_cpu": not on_gpu,
   "precision": str(next(model.parameters()).dtype) if hasattr(model, 'parameters') else None,
 }, open("reports/telemetry.json", "w"), indent=2)
 ```
@@ -342,6 +349,7 @@ while not inference_succeeded:
     "model_load_time_s": "number|null",
     "inference_fps": "number|null",
     "device": "string|null",
+    "fallback_to_cpu": "boolean|null",
     "precision": "string|null"
   },
   "usage": {
@@ -638,7 +646,7 @@ git status --porcelain
 git add reports/ pixi.toml pixi.lock
 git commit -m "chore: finalize reproduction reports"
 ```
-`reports/attempts.tsv` は `.gitignore` 対象外、クリーンなら空コミットを作らない。
+`reports/attempts.tsv` は Phase 0 で `.gitignore` 追加済みなので `git add reports/` には載らない。`reports/` 配下に新規ファイルが無ければ空コミットを skip する。
 
 **5.2 アーカイブ作成**（`status == "success"` のみ、他は skip → `archive_path=null`）:
 ```bash

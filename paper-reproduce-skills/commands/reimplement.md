@@ -101,6 +101,10 @@ ldd --version | head -1
     "input": "string|null",
     "output": "string|null"
   },
+  "coord_convention": {
+    "world": "opencv|opengl|z_up|unknown",
+    "evidence": "string|null"
+  },
   "dep_type": "A1|A2|A3|B1|B2|B3|C1|C2|C3|D1|D2|D3|E1|E2|E3|F",
   "dep_type_label": "string",
   "dep_files_found": {
@@ -705,35 +709,37 @@ null 時: `<p class="usage-empty">No API-style usage detected; use the Quickstar
 </div>
 ```
 
+3D type (`gaussian_splat` / `point_cloud` / `mesh`) では **`data-coord-convention="{metadata.coord_convention or 'unknown'}"`** 属性を必ず付ける。viewer 側がこの値を見て X 軸 180° 回転を適用する。値は `opencv` / `opengl` / `z_up` / `unknown` のいずれか。
+
 **`gaussian_splat`**:
 ```html
 <div class="sample-item">
   <h4>{label}</h4>
-  <div class="viewer-3d viewer-gsplat" data-src="{output_paths[0]}"></div>
+  <div class="viewer-3d viewer-gsplat" data-src="{output_paths[0]}" data-coord-convention="{metadata.coord_convention}"></div>
   <p class="usage-note">3D Gaussians: {metadata.gaussian_count}</p>
 </div>
 ```
-ビューワ本体は template 末尾の `<script type="module">` が Three.js + `@mkkellogg/gaussian-splats-3d` を CDN importmap 経由で動的初期化。
+ビューワ本体は template 末尾の `<script type="module">` が Three.js + `@mkkellogg/gaussian-splats-3d` を CDN importmap 経由で動的初期化。GS viewer は既に `cameraUp=[0,-1,0]` で OpenCV 規約に対応済みのため、現状は `data-coord-convention` を読まない（将来的に opengl 入力を扱う際の予約属性）。
 
 **`point_cloud`**:
 ```html
 <div class="sample-item">
   <h4>{label}</h4>
-  <div class="viewer-3d viewer-pointcloud" data-src="{output_paths[0]}"></div>
+  <div class="viewer-3d viewer-pointcloud" data-src="{output_paths[0]}" data-coord-convention="{metadata.coord_convention}"></div>
   <p class="usage-note">Points: {metadata.point_count}</p>
 </div>
 ```
-ビューワは Three.js `PLYLoader` + `THREE.Points`。
+ビューワは Three.js `PLYLoader` + `THREE.Points`。`data-coord-convention="opencv"` で X 軸 180° 回転 (`points.rotateX(π)`)、`"z_up"` で X 軸 -90° 回転。
 
 **`mesh`**:
 ```html
 <div class="sample-item">
   <h4>{label}</h4>
-  <div class="viewer-3d viewer-mesh" data-src="{output_paths[0]}"></div>
+  <div class="viewer-3d viewer-mesh" data-src="{output_paths[0]}" data-coord-convention="{metadata.coord_convention}"></div>
   <p class="usage-note">Format: {metadata.format}</p>
 </div>
 ```
-ビューワは Three.js `GLTFLoader` / `OBJLoader`。対応: `.glb` / `.gltf` / `.obj`。
+ビューワは Three.js `GLTFLoader` / `OBJLoader`。対応: `.glb` / `.gltf` / `.obj`。`data-coord-convention="opencv"` で X 軸 180° 回転を適用。
 
 **`video`**:
 ```html

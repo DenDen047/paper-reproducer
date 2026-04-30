@@ -149,17 +149,48 @@ else:
 | `rgb_to_rgb` | 入力 → 出力 | 1 | 1 | `{}` |
 | `mono_to_depth` | RGB → Depth (turbo) | 1 | 1 | `{"colormap": "turbo"}` |
 | `stereo_to_depth` | Left / Right / Disparity | 2 | 1 | `{"colormap": "turbo"}` |
-| `mv_to_gaussians` | 再構成された 3D Gaussians | [] | 1 | `{"format", "gaussian_count"}` (PLY `element vertex N`) |
-| `images_to_pointcloud` | 再構成された点群 | [] | 1 | `{"format", "point_count", "has_color"}` (`property uchar red` 有無) |
+| `mv_to_gaussians` | 再構成された 3D Gaussians | [] | 1 | `{"format", "gaussian_count", "coord_convention"}` (PLY `element vertex N`) |
+| `images_to_pointcloud` | 再構成された点群 | [] | 1 | `{"format", "point_count", "has_color", "coord_convention"}` (`property uchar red` 有無) |
 | `image_to_mask` | 入力 → セグメンテーションマスク | 1 | 1 | `{"task": "segmentation"}` |
 | `image_to_bbox` | 入力 → 検出結果 (bounding boxes) | 1 | 1 | `{"task": "detection"}` |
 | `image_to_keypoint` | 入力 → 姿勢推定 (keypoints) | 1 | 1 | `{"task": "pose"}` |
 | `frames_to_flow` | Frame 1 / Frame 2 / Flow | 2 | 1 | `{"visualization": "color_wheel"}` |
-| `image_to_mesh` | 再構成されたメッシュ | 1 | 1 | `{"format", "has_texture"}` |
+| `image_to_mesh` | 再構成されたメッシュ | 1 | 1 | `{"format", "has_texture", "coord_convention"}` |
 | `mv_to_nerf` | 再構成結果 (orbit rendering) | [] | 1 | `{"format", "note": "pre-rendered orbit"}` |
 | `video_output` | 生成動画 | [] | 1 | `{"format": "mp4"}` |
 
 認識系（mask / bbox / keypoint）は pre-visualized overlay RGB がある場合のみ採用。座標/raw mask のみなら `unknown` + note。`mv_to_nerf` は orbit 動画なしなら `unknown`。
+
+## Step 4.5: 座標系規約の埋め込み（3D types のみ）
+
+`mv_to_gaussians` / `images_to_pointcloud` / `image_to_mesh` の `metadata.coord_convention` に **その 3D 出力の座標系規約** を入れる。Three.js viewer がこの値を見て X 軸 180° 回転を適用するか決める。誤判定で **上下逆さま / 鏡像表示** になる古典バグを防ぐため。
+
+優先順位:
+
+1. `analysis.json.coord_convention.world` を一次情報として採用
+2. 上記が `unknown` で `mv_to_gaussians` の場合: **`opencv` に格上げ**（3DGS PLY 形式は事実上 OpenCV ヘリテージ Inria/Mip-Splatting/Grendel-GS）。`note` に `"coord inferred from 3DGS heritage"` を追記
+3. 上記が `unknown` で `images_to_pointcloud` の場合: 出力 `.ply` 先頭で Z 分布をチェック（`pixi run python -c "..."` 等で `pts[:,2].min(), pts[:,2].max()` を取得）。両方正なら `opencv`、両方負なら `opengl`、混在なら `unknown` のまま
+4. それ以外は `unknown` を保持し、`samples.note` に `"coord_convention=unknown for 3D output; viewer may show flipped — verify manually"` を 1 行追記
+
+値は `"opencv" | "opengl" | "z_up" | "unknown"` のいずれか。
+
+### Z 分布による判別レシピ（参考）
+
+```python
+# 軽量 PLY 読み: header の "format ascii" / "format binary_little_endian" を検出
+# vertex の x/y/z 列を読む。先頭 N 点 (例 1000) で十分
+import struct
+def quick_z_range(path, n_sample=1000):
+    with open(path, "rb") as f:
+        # 先頭 4KB を読んで header を解析
+        head = f.read(4096).decode("ascii", errors="ignore")
+        # 'element vertex N' / 'property * x' / 'property * y' / 'property * z' を抽出
+        # 'end_header' 以降がデータ。format ascii or binary を分岐
+        ...
+    return zmin, zmax
+```
+
+実装は agent が必要に応じて生成。確信を持てなければ `unknown` のまま。
 
 ## 必須チェック
 

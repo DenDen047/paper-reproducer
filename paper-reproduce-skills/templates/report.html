@@ -357,6 +357,14 @@ document.querySelectorAll('pre').forEach(function(pre) {
     return maxDim;
   };
 
+  // OpenCV (Y-down, +Z forward) → Three.js (Y-up, -Z forward) は X 軸 180° 回転 = diag(1,-1,-1)。
+  // det=+1 なので右手系維持（鏡像にならない）。Y だけ反転は左手系になるので NG。
+  // Z-up (Blender 旧, ROS) は X 軸 -90° 回転で Y-up に揃える。
+  const applyCoordConvention = (obj, conv) => {
+    if (conv === 'opencv') obj.rotateX(Math.PI);
+    else if (conv === 'z_up') obj.rotateX(-Math.PI / 2);
+  };
+
   // ----- Point cloud viewer -----
   if (pcEls.length > 0) {
     let PLYLoader;
@@ -411,6 +419,7 @@ document.querySelectorAll('pre').forEach(function(pre) {
             sizeAttenuation: true,
           });
           const points = new THREE.Points(geometry, material);
+          applyCoordConvention(points, el.dataset.coordConvention);
           scene.add(points);
 
           camera.position.set(0, 0, maxDim * 2.0);
@@ -477,6 +486,7 @@ document.querySelectorAll('pre').forEach(function(pre) {
         loader.load(
           src,
           (gltf) => {
+            applyCoordConvention(gltf.scene, el.dataset.coordConvention);
             scene.add(gltf.scene);
             autoFit(gltf.scene, camera, controls);
           },
@@ -494,6 +504,7 @@ document.querySelectorAll('pre').forEach(function(pre) {
                 child.material = new THREE.MeshStandardMaterial({ color: 0x94a3b8 });
               }
             });
+            applyCoordConvention(object, el.dataset.coordConvention);
             scene.add(object);
             autoFit(object, camera, controls);
           },

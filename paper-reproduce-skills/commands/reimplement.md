@@ -97,6 +97,10 @@ ldd --version | head -1
     "tagline": "string|null",
     "paper_url": "string|null"
   },
+  "problem": {
+    "input": "string|null",
+    "output": "string|null"
+  },
   "dep_type": "A1|A2|A3|B1|B2|B3|C1|C2|C3|D1|D2|D3|E1|E2|E3|F",
   "dep_type_label": "string",
   "dep_files_found": {
@@ -400,6 +404,10 @@ with open("reports/environment.json", "w") as f:
     "tagline": "string|null",
     "paper_url": "string|null"
   },
+  "problem": {
+    "input": "string|null",
+    "output": "string|null"
+  },
   "status": "success|partial|failed",
   "dep_type": "string",
   "dep_type_label": "string",
@@ -487,6 +495,7 @@ with open("reports/environment.json", "w") as f:
 
 **埋め込み規則**:
 - `overview` → `analysis.json.overview` をそのまま転記。各フィールドは `null` 許容
+- `problem` → `analysis.json.problem` をそのまま転記。各フィールドは `null` 許容
 - `environment` → Step 1.4 の `reports/environment.json` をそのまま転記
 - `usage` → Step 1.5 の結果をそのまま。取れなかった階層は `null`（`advanced` のみ空配列 `[]`）
 - `samples` → Step 1.6 の結果をそのまま。パスは `reports/` 相対（例: `samples/input/left.png`）
@@ -570,6 +579,7 @@ chmod +x reports/view.sh
 | `{{REPO_URL}}` | `analysis.json.repo_url` |
 | `{{TIMESTAMP}}` | 現在日時（形式: `YYYY-MM-DD HH:MM:SS ±HH:MM`） |
 | `{{OVERVIEW_BLOCK}}` | `report.json.overview` をレンダリング |
+| `{{PROBLEM_BLOCK}}` | `report.json.problem` をレンダリング |
 | `{{ENVIRONMENT_BLOCK}}` | `report.json.environment` をレンダリング |
 | `{{STATUS}}` | `report.json.status` |
 | `{{DEP_TYPE}}` | `analysis.json.dep_type` + `dep_type_label` |
@@ -600,6 +610,24 @@ chmod +x reports/view.sh
 ```
 
 3 フィールド全て `null` の場合: `<p class="usage-empty">Could not extract overview from README.</p>`
+
+#### problem ブロックのレンダリング
+
+**`{{PROBLEM_BLOCK}}`** — 各 `summary-item` を順に並べる:
+
+| label | value（null は `—`） |
+|---|---|
+| `Input` | `{input}` |
+| `Output` | `{output}` |
+
+```html
+<div class="summary-grid">
+  <div class="summary-item"><label>Input</label><span class="value">{input}</span></div>
+  <div class="summary-item"><label>Output</label><span class="value">{output}</span></div>
+</div>
+```
+
+`input` / `output` 両方 `null` の場合: `<p class="usage-empty">Could not determine input/output from README.</p>`
 
 #### environment ブロックのレンダリング
 

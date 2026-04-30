@@ -365,6 +365,54 @@ document.querySelectorAll('pre').forEach(function(pre) {
     else if (conv === 'z_up') obj.rotateX(-Math.PI / 2);
   };
 
+  // PointsMaterial.size を per-viewer で動的調整するスライダ。固定 size=maxDim*0.002 だと
+  // 室内シーン (maxDim ~10) と望遠野外 (maxDim ~170) のどちらかで破綻するため、
+  // ユーザーがリアルタイムに調整 + reset できるようにする。
+  // sliderMin = max(maxDim*0.0002, 1e-5) で極小シーンの floor を保証、
+  // sliderMax = maxDim*0.02 (= 初期値の 10×) で「これ以上大きくしても飽和」する上限。
+  const addPointSizeSlider = (el, material, maxDim) => {
+    const initial = material.size;
+    const sliderMin = Math.max(maxDim * 0.0002, 1e-5);
+    const sliderMax = maxDim * 0.02;
+
+    const ctrl = document.createElement('div');
+    ctrl.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:12px;color:#94a3b8;margin-top:6px;font-family:inherit;';
+
+    const lbl = document.createElement('span');
+    lbl.textContent = 'Point size:';
+    lbl.style.cssText = 'flex-shrink:0;';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = sliderMin;
+    slider.max = sliderMax;
+    slider.step = (sliderMax - sliderMin) / 200;
+    slider.value = initial;
+    slider.style.cssText = 'flex:1;min-width:120px;accent-color:#7dd3fc;';
+
+    const readout = document.createElement('code');
+    readout.textContent = initial.toFixed(4);
+    readout.style.cssText = 'min-width:64px;text-align:right;background:transparent;color:#cbd5e1;';
+
+    const reset = document.createElement('button');
+    reset.textContent = 'reset';
+    reset.type = 'button';
+    reset.style.cssText = 'background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;';
+
+    ctrl.append(lbl, slider, readout, reset);
+    el.parentNode.insertBefore(ctrl, el.nextSibling);
+
+    slider.addEventListener('input', () => {
+      material.size = parseFloat(slider.value);
+      readout.textContent = material.size.toFixed(4);
+    });
+    reset.addEventListener('click', () => {
+      material.size = initial;
+      slider.value = initial;
+      readout.textContent = initial.toFixed(4);
+    });
+  };
+
   // ----- Point cloud viewer -----
   if (pcEls.length > 0) {
     let PLYLoader;
@@ -421,6 +469,7 @@ document.querySelectorAll('pre').forEach(function(pre) {
           const points = new THREE.Points(geometry, material);
           applyCoordConvention(points, el.dataset.coordConvention);
           scene.add(points);
+          addPointSizeSlider(el, material, maxDim);
 
           camera.position.set(0, 0, maxDim * 2.0);
           controls.target.set(0, 0, 0);

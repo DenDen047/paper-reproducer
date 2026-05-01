@@ -9,6 +9,10 @@ allowed-tools: Bash Read Grep Glob
 
 README / スクリプト / Phase 3 の成功コマンドから使い方を 3 段階（Quickstart / Advanced / Developer）で抽出し、`report.json.usage` を生成する。
 
+## 出力言語
+
+`quickstart.description`、各 advanced エントリの `title` / `note`、`developer.description` / `note` は環境変数 `$REPORT_LANG` (`ja` デフォルト / `en`) に従う。`command` / `sample_code` / `import_path` / `source` (ファイルパス) はコード由来の literal なので翻訳しない。`description` は最小限・短文・1 行原則を維持する。下記表中の例文は `ja` 想定で、`en` 指定時は同等の短文を英語で書く（例: 「入力画像 1 枚に対して推論を実行」 → "Run inference on a single input image"）。
+
 ## 出力スキーマ
 
 ```json

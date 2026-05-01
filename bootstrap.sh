@@ -26,6 +26,7 @@ REBUILD=0
 FRESH=0
 REPOS_FILE=""
 URLS=()
+REPORT_LANG="${REPORT_LANG:-ja}"
 
 usage() {
   cat <<EOF
@@ -40,10 +41,12 @@ Options:
   --repos <file>     Read URLs from file
   --rebuild          Force Docker image rebuild
   --fresh            Re-clone over existing clones
+  --lang <code>      Report output language: ja (default) | en
   -h, --help         Show this help
 
 Environment:
   WORKSPACE_DIR      Host clone dir (default: ~/paper-reproduce-workspaces)
+  REPORT_LANG        Same as --lang (default: ja); overridden by --lang
 
 Examples:
   ./bootstrap.sh https://github.com/user/repo.git
@@ -65,6 +68,11 @@ while [[ $# -gt 0 ]]; do
       REPOS_FILE="$2"; shift 2 ;;
     --repos=*)
       REPOS_FILE="${1#*=}"; shift ;;
+    --lang)
+      [[ $# -ge 2 ]] || die "--lang requires an argument (ja|en)"
+      REPORT_LANG="$2"; shift 2 ;;
+    --lang=*)
+      REPORT_LANG="${1#*=}"; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; break ;;
     -*) die "unknown option: $1 (see --help)" ;;
@@ -90,6 +98,12 @@ if [[ ${#URLS[@]} -eq 0 ]]; then
   usage >&2
   exit 2
 fi
+
+case "$REPORT_LANG" in
+  ja|en) ;;
+  *) die "unsupported --lang '$REPORT_LANG' (expected: ja | en)" ;;
+esac
+log "report language: $REPORT_LANG"
 
 # --- 事前チェック（共通）---
 command -v git     >/dev/null 2>&1 || die "git not found on PATH"
@@ -235,6 +249,7 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
     "${CLAUDE_JSON_MOUNT[@]}" \
     "${SYMLINK_MOUNTS[@]}" \
     "${TERM_ENV[@]}" \
+    -e "REPORT_LANG=$REPORT_LANG" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$REPO_NAME" \
     --shm-size=8g \
@@ -282,6 +297,7 @@ docker_cmd_for() {
     "${CLAUDE_JSON_MOUNT[@]}" \
     "${SYMLINK_MOUNTS[@]}" \
     "${TERM_ENV[@]}" \
+    -e "REPORT_LANG=$REPORT_LANG" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$name" \
     --shm-size=8g \

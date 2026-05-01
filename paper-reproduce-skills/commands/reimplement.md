@@ -9,6 +9,8 @@ CV 論文の GitHub リポジトリを Pixi 環境で全自動再現する。以
 
 **NEVER STOP**: 人間に確認しない。Tier 分類に従い自律リトライ。手動停止のみで終了。
 
+**REPORT_LANG**: 環境変数 `REPORT_LANG` で `report.html` / `report.json` 内のユーザー向け散文の出力言語を切り替える。`ja` (デフォルト) または `en`。値は `bootstrap.sh --lang` で渡され、Phase 4 で chrome 文字列の i18n 置換と、各種スキル (repo-analyzer の overview/problem、usage-documenter の description、sample-embedder の label、Phase 4 Step 1.7 の next_actions) が生成する散文の言語選択に使われる。論文・コード由来の固有名詞は翻訳しない。
+
 ---
 
 ## Phase 0: Initialize
@@ -396,6 +398,7 @@ with open("reports/environment.json", "w") as f:
 - 結果が無くても最低 1 件は出す（success でも「自分のデータで試す」等）
 - **priority と cost を混同しない**: "24GB GPU で full-res" は `cost=gpu_upgrade` なので現手元で実行不可 → `high` ではない。**今動かせるタスクを `high` に置く**
 - `high` は 0–2 件
+- `action` / `reason` は `$REPORT_LANG` (`ja` デフォルト / `en`) に従って書く。`command` フィールドはコマンド原文のまま（翻訳しない）
 
 ### Step 2: reports/report.json 生成（機械可読、SSOT）
 
@@ -553,22 +556,44 @@ cp /paper-reproduce-skills/templates/view.sh     reports/view.sh
 chmod +x reports/view.sh
 ```
 
+#### 言語解決と i18n strings dict のロード
+
+```bash
+LANG_CODE="${REPORT_LANG:-ja}"
+case "$LANG_CODE" in ja|en) ;; *) LANG_CODE=ja ;; esac
+```
+
+`/paper-reproduce-skills/templates/i18n.json` の `$LANG_CODE` キーが strings dict。`{{T_*}}` 系プレースホルダはこの dict から、`{{HTML_LANG}}` は `dict.html_lang` から、`{{I18N_JSON_INLINE}}` は dict 全体を JSON.stringify した文字列から置換する。
+
+```bash
+python3 - <<'PY' > /tmp/i18n_subst.json
+import json, os
+lang = os.environ.get('REPORT_LANG', 'ja')
+if lang not in ('ja', 'en'):
+    lang = 'ja'
+with open('/paper-reproduce-skills/templates/i18n.json') as f:
+    d = json.load(f)[lang]
+print(json.dumps({'lang': lang, 'dict': d}))
+PY
+```
+
+`{{T_*}}` キー名は dict キーを大文字化したもの (例: `dict.h2_summary` → `{{T_H2_SUMMARY}}`、`dict.copy_idle` → `{{T_COPY_IDLE}}` ※ JS 側で参照する copy_* / viewer_* / fig_* / note_* は `{{I18N_JSON_INLINE}}` 経由で window.__I18N__ に注入されるため、template 側で `{{T_*}}` 個別置換は不要)。詳細は下記プレースホルダー表を参照。
+
 **MUST NOT**:
 - `<style>` 内を変更する
-- `<title>` 文面を変更する
-- `<html lang="en">` を他言語に変える
 - プレースホルダー名を追加・削除する
 - 新セクション (`<h2>`, `<div>`) を追加する
+- `<html lang="…">` / `<title>…</title>` を i18n 以外の理由で書き換える（言語切替は `{{HTML_LANG}}` / `{{T_TITLE_PREFIX}}` 経由のみ）
 
-置換後の先頭 6 行は以下と一致:
+置換後の先頭 6 行は (LANG_CODE=ja の場合):
 
 ```
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reimplement Report: {REPO_NAME}</title>
+<title>再現レポート: {REPO_NAME}</title>
 ```
 
 `view.sh` は `python3 -m http.server` で `report.html` を開くヘルパ（3D ビューワの CORS 対策）。
@@ -576,6 +601,8 @@ chmod +x reports/view.sh
 **ASSERTION**: `report.html` の `<tr>` 行数 == `attempts.tsv` のデータ行数。
 
 #### プレースホルダー置換
+
+**Content placeholders（動的データ由来）**:
 
 | プレースホルダー | 値の取得元 |
 |---|---|
@@ -600,6 +627,34 @@ chmod +x reports/view.sh
 | `{{ERRORS_LIST}}` | エラーの `<li>` リスト（`failed`/`partial` 時のみ） |
 | `{{PLUGIN_VERSION}}` | `plugin.json.version` |
 
+**i18n placeholders（chrome 文字列、`i18n.json[$LANG_CODE]` 由来）**:
+
+| プレースホルダー | dict キー |
+|---|---|
+| `{{HTML_LANG}}` | `html_lang` |
+| `{{T_TITLE_PREFIX}}` | `title_prefix` |
+| `{{T_META_GENERATED}}` | `meta_generated` |
+| `{{T_H2_SUMMARY}}` / `{{T_H2_ENVIRONMENT}}` / `{{T_H2_OVERVIEW}}` / `{{T_H2_PROBLEM}}` / `{{T_H2_USAGE}}` / `{{T_H2_NEXT_ACTIONS}}` / `{{T_H2_SAMPLES}}` / `{{T_H2_ATTEMPTS}}` / `{{T_H2_ARTIFACTS}}` / `{{T_H2_PIXI}}` / `{{T_H2_ERRORS}}` | `h2_*` |
+| `{{T_H3_QUICKSTART}}` / `{{T_H3_ADVANCED}}` / `{{T_H3_DEVELOPER}}` | `h3_*` |
+| `{{T_LABEL_STATUS}}` / `{{T_LABEL_DEP_TYPE}}` / `{{T_LABEL_TOTAL_ATTEMPTS}}` / `{{T_LABEL_TOTAL_DURATION}}` | `label_*` |
+| `{{T_TH_NUM}}` / `{{T_TH_COMMIT}}` / `{{T_TH_PHASE}}` / `{{T_TH_ACTION}}` / `{{T_TH_INTENT}}` / `{{T_TH_RESULT}}` / `{{T_TH_TIER}}` / `{{T_TH_ERROR_SUMMARY}}` / `{{T_TH_DURATION_S}}` | `th_*` |
+| `{{T_LEGEND_SUMMARY}}` / `{{T_LEGEND_PHASE_HEADING}}` / `{{T_LEGEND_TIER_HEADING}}` / `{{T_LEGEND_PHASE0_DESC}}` … `{{T_LEGEND_PHASE4_DESC}}` / `{{T_LEGEND_TIER0_DESC}}` / `{{T_LEGEND_TIER1_DESC}}` / `{{T_LEGEND_TIER2_CONFIG_DESC}}` / `{{T_LEGEND_TIER2_HARDWARE_DESC}}` / `{{T_LEGEND_TIER3_DESC}}` / `{{T_LEGEND_DASH_DESC}}` | `legend_*` |
+| `{{T_WARN_FILE_PROTOCOL_TITLE}}` / `{{T_WARN_FILE_PROTOCOL_BODY}}` | `warn_file_protocol_*` |
+| `{{T_FOOTER_GENERATED_BY}}` | `footer_generated_by`（`{plugin_name}` を `paper-reproduce` に、`{version}` を `plugin.json.version` に展開してから挿入） |
+| `{{I18N_JSON_INLINE}}` | strings dict 全体を `JSON.stringify` 相当（`<` `>` `&` をエスケープ済み）。JS 側 (copy ボタン、3D viewer エラー、Point size スライダ) はこれを `window.__I18N__` 経由で読む |
+
+**動的レンダリング側で使う dict キー**（OVERVIEW/PROBLEM/ENVIRONMENT/USAGE/SAMPLES の中で生成する HTML フラグメントに埋め込む）:
+
+| 用途 | dict キー |
+|---|---|
+| 環境カードのラベル | `label_hostname` / `label_os` / `label_cpu` / `label_ram` / `label_gpu` / `label_cuda_driver` / `label_python` |
+| 問題設定のラベル | `label_input` / `label_output` |
+| 空状態メッセージ | `empty_overview` / `empty_problem` / `empty_environment` / `empty_quickstart` / `empty_advanced` / `empty_developer` / `empty_samples` / `empty_next_actions` |
+| Quickstart の Verified バッジ | `verified_badge` |
+| Advanced の Source 接頭辞 | `source_label` |
+| Sample I/O の figcaption | `fig_input` / `fig_output` / `fig_left` / `fig_right` / `fig_disparity` |
+| Sample I/O のメタノート接頭辞 | `note_gaussians` / `note_points` / `note_format` |
+
 #### overview ブロックのレンダリング
 
 **`{{OVERVIEW_BLOCK}}`**:
@@ -613,39 +668,39 @@ chmod +x reports/view.sh
 <p class="overview-link"><a href="{paper_url}">{paper_url}</a></p>
 ```
 
-3 フィールド全て `null` の場合: `<p class="usage-empty">Could not extract overview from README.</p>`
+3 フィールド全て `null` の場合: `<p class="usage-empty">{dict.empty_overview}</p>`
 
 #### problem ブロックのレンダリング
 
-**`{{PROBLEM_BLOCK}}`** — 各 `summary-item` を順に並べる:
+**`{{PROBLEM_BLOCK}}`** — 各 `summary-item` を順に並べる。label は `dict.label_input` / `dict.label_output`:
 
 | label | value（null は `—`） |
 |---|---|
-| `Input` | `{input}` |
-| `Output` | `{output}` |
+| `dict.label_input` | `{input}` |
+| `dict.label_output` | `{output}` |
 
 ```html
 <div class="summary-grid">
-  <div class="summary-item"><label>Input</label><span class="value">{input}</span></div>
-  <div class="summary-item"><label>Output</label><span class="value">{output}</span></div>
+  <div class="summary-item"><label>{dict.label_input}</label><span class="value">{input}</span></div>
+  <div class="summary-item"><label>{dict.label_output}</label><span class="value">{output}</span></div>
 </div>
 ```
 
-`input` / `output` 両方 `null` の場合: `<p class="usage-empty">Could not determine input/output from README.</p>`
+`input` / `output` 両方 `null` の場合: `<p class="usage-empty">{dict.empty_problem}</p>`
 
 #### environment ブロックのレンダリング
 
-**`{{ENVIRONMENT_BLOCK}}`** — 各 `summary-item` を順に並べる:
+**`{{ENVIRONMENT_BLOCK}}`** — 各 `summary-item` を順に並べる。label は dict キー:
 
 | label | value（null は `—`） |
 |---|---|
-| `Hostname` | `{hostname}` |
-| `OS` | `{os}` |
-| `CPU` | `{cpu}` |
-| `RAM` | `{ram_total_gb} GB` |
-| `GPU {index}` | `{name} ({memory_total_mb / 1024:.1f} GB)` — gpus[] 各要素を 1 item ずつ |
-| `CUDA / Driver` | `CUDA {cuda_version} / driver {gpus[0].driver_version}` — gpus が空配列なら省略 |
-| `Python` | `{python_version}` |
+| `dict.label_hostname` | `{hostname}` |
+| `dict.label_os` | `{os}` |
+| `dict.label_cpu` | `{cpu}` |
+| `dict.label_ram` | `{ram_total_gb} GB` |
+| `dict.label_gpu + " " + index` | `{name} ({memory_total_mb / 1024:.1f} GB)` — gpus[] 各要素を 1 item ずつ |
+| `dict.label_cuda_driver` | `CUDA {cuda_version} / driver {gpus[0].driver_version}` — gpus が空配列なら省略 |
+| `dict.label_python` | `{python_version}` |
 
 ```html
 <div class="summary-grid">
@@ -654,7 +709,7 @@ chmod +x reports/view.sh
 </div>
 ```
 
-`environment` 自体が `null` / 空 dict の場合: `<p class="usage-empty">Environment not recorded.</p>`
+`environment` 自体が `null` / 空 dict の場合: `<p class="usage-empty">{dict.empty_environment}</p>`
 
 #### usage ブロックのレンダリング
 
@@ -662,17 +717,17 @@ chmod +x reports/view.sh
 ```html
 <p>{description}</p>
 <pre><code>{command}</code></pre>
-<p class="usage-note">{verified ? '<span class="usage-verified">✓ Verified in Phase 3</span>' : note}</p>
+<p class="usage-note">{verified ? '<span class="usage-verified">' + dict.verified_badge + '</span>' : note}</p>
 ```
-null 時: `<p class="usage-empty">Could not identify a Quickstart command.</p>`
+null 時: `<p class="usage-empty">{dict.empty_quickstart}</p>`
 
 **`{{ADVANCED_BLOCK}}`** — 各要素を順に:
 ```html
 <h4>{title}</h4>
 <pre><code>{command}</code></pre>
-<p class="usage-note">Source: {source}{note ? ' — ' + note : ''}</p>
+<p class="usage-note">{dict.source_label} {source}{note ? ' — ' + note : ''}</p>
 ```
-空配列時: `<p class="usage-empty">No additional usage found.</p>`
+空配列時: `<p class="usage-empty">{dict.empty_advanced}</p>`
 
 **`{{DEVELOPER_BLOCK}}`** — 非 null 時:
 ```html
@@ -680,7 +735,7 @@ null 時: `<p class="usage-empty">Could not identify a Quickstart command.</p>`
 <pre><code>{sample_code}</code></pre>
 <p class="usage-note">Import: <code>{import_path}</code>{note ? ' — ' + note : ''}</p>
 ```
-null 時: `<p class="usage-empty">No API-style usage detected; use the Quickstart script directly.</p>`
+null 時: `<p class="usage-empty">{dict.empty_developer}</p>`
 
 #### samples ブロックのレンダリング
 
@@ -691,8 +746,8 @@ null 時: `<p class="usage-empty">No API-style usage detected; use the Quickstar
 <div class="sample-item">
   <h4>{label}</h4>
   <div class="sample-grid sample-grid-2">
-    <figure><img src="{input_paths[0]}" alt="input" loading="lazy"><figcaption>Input</figcaption></figure>
-    <figure><img src="{output_paths[0]}" alt="output" loading="lazy"><figcaption>Output</figcaption></figure>
+    <figure><img src="{input_paths[0]}" alt="input" loading="lazy"><figcaption>{dict.fig_input}</figcaption></figure>
+    <figure><img src="{output_paths[0]}" alt="output" loading="lazy"><figcaption>{dict.fig_output}</figcaption></figure>
   </div>
 </div>
 ```
@@ -702,9 +757,9 @@ null 時: `<p class="usage-empty">No API-style usage detected; use the Quickstar
 <div class="sample-item">
   <h4>{label}</h4>
   <div class="sample-grid sample-grid-3">
-    <figure><img src="{input_paths[0]}" alt="left" loading="lazy"><figcaption>Left</figcaption></figure>
-    <figure><img src="{input_paths[1]}" alt="right" loading="lazy"><figcaption>Right</figcaption></figure>
-    <figure><img src="{output_paths[0]}" alt="disparity" loading="lazy"><figcaption>Disparity</figcaption></figure>
+    <figure><img src="{input_paths[0]}" alt="left" loading="lazy"><figcaption>{dict.fig_left}</figcaption></figure>
+    <figure><img src="{input_paths[1]}" alt="right" loading="lazy"><figcaption>{dict.fig_right}</figcaption></figure>
+    <figure><img src="{output_paths[0]}" alt="disparity" loading="lazy"><figcaption>{dict.fig_disparity}</figcaption></figure>
   </div>
 </div>
 ```
@@ -716,7 +771,7 @@ null 時: `<p class="usage-empty">No API-style usage detected; use the Quickstar
 <div class="sample-item">
   <h4>{label}</h4>
   <div class="viewer-3d viewer-gsplat" data-src="{output_paths[0]}" data-coord-convention="{metadata.coord_convention}"></div>
-  <p class="usage-note">3D Gaussians: {metadata.gaussian_count}</p>
+  <p class="usage-note">{dict.note_gaussians} {metadata.gaussian_count}</p>
 </div>
 ```
 ビューワ本体は template 末尾の `<script type="module">` が Three.js + `@mkkellogg/gaussian-splats-3d` を CDN importmap 経由で動的初期化。GS viewer は既に `cameraUp=[0,-1,0]` で OpenCV 規約に対応済みのため、現状は `data-coord-convention` を読まない（将来的に opengl 入力を扱う際の予約属性）。
@@ -726,7 +781,7 @@ null 時: `<p class="usage-empty">No API-style usage detected; use the Quickstar
 <div class="sample-item">
   <h4>{label}</h4>
   <div class="viewer-3d viewer-pointcloud" data-src="{output_paths[0]}" data-coord-convention="{metadata.coord_convention}"></div>
-  <p class="usage-note">Points: {metadata.point_count}</p>
+  <p class="usage-note">{dict.note_points} {metadata.point_count}</p>
 </div>
 ```
 ビューワは Three.js `PLYLoader` + `THREE.Points`。`data-coord-convention="opencv"` で X 軸 180° 回転 (`points.rotateX(π)`)、`"z_up"` で X 軸 -90° 回転。
@@ -736,7 +791,7 @@ null 時: `<p class="usage-empty">No API-style usage detected; use the Quickstar
 <div class="sample-item">
   <h4>{label}</h4>
   <div class="viewer-3d viewer-mesh" data-src="{output_paths[0]}" data-coord-convention="{metadata.coord_convention}"></div>
-  <p class="usage-note">Format: {metadata.format}</p>
+  <p class="usage-note">{dict.note_format} {metadata.format}</p>
 </div>
 ```
 ビューワは Three.js `GLTFLoader` / `OBJLoader`。対応: `.glb` / `.gltf` / `.obj`。`data-coord-convention="opencv"` で X 軸 180° 回転を適用。
@@ -751,7 +806,7 @@ null 時: `<p class="usage-empty">No API-style usage detected; use the Quickstar
 </div>
 ```
 
-空配列時: `<p class="usage-empty">No samples available{note ? ' (' + note + ')' : ''}.</p>`
+空配列時: `<p class="usage-empty">{dict.empty_samples}{note ? ' (' + note + ')' : ''}.</p>`
 
 #### next_actions ブロックのレンダリング
 
@@ -769,7 +824,7 @@ null 時: `<p class="usage-empty">No API-style usage detected; use the Quickstar
 </div>
 ```
 
-空配列時: `<p class="usage-empty">No notable next actions.</p>`
+空配列時: `<p class="usage-empty">{dict.empty_next_actions}</p>`
 
 #### HTML エスケープ（共通）
 
@@ -808,15 +863,17 @@ git add reports/report.json && git commit -m "chore: record archive path"
 
 ### Step 6: Next Actions のターミナル出力
 
-`report.json` の `next_actions` / `archive_path` / `status` を読み、そのまま出力する（再生成・再計算しない）。
+`report.json` の `next_actions` / `archive_path` / `status` を読み、そのまま出力する（再生成・再計算しない）。見出し・固定文言は `$REPORT_LANG` に従う。`action` / `reason` は既に Step 1.7 で `$REPORT_LANG` で書かれている前提で再翻訳しない。
+
+LANG=ja（デフォルト）:
 
 ```
-## Reproduction Complete
+## 再現完了
 
-Status: {status}
-Archive: {archive_path or "(not created; status != success)"}
+ステータス: {status}
+アーカイブ: {archive_path or "(status != success のため未作成)"}
 
-## Next Actions
+## 次のアクション
 
 1. [HIGH] {action}
    理由: {reason}
@@ -829,7 +886,23 @@ Archive: {archive_path or "(not created; status != success)"}
    ...
 ```
 
-- `next_actions` が空 → 「再現は完了しました。特筆すべき次のアクションはありません。」
+LANG=en:
+
+```
+## Reproduction Complete
+
+Status: {status}
+Archive: {archive_path or "(not created; status != success)"}
+
+## Next Actions
+
+1. [HIGH] {action}
+   Reason: {reason}
+   $ {command}
+...
+```
+
+- `next_actions` が空 → ja: 「再現は完了しました。特筆すべき次のアクションはありません。」 / en: "Reproduction complete. No notable next actions."
 - `command` が null の項目は `$ {command}` 行を省略
 - `archive_path` が null なら代わりに理由を表示
 - 出力タイミングは Step 5 完了後の最後のみ

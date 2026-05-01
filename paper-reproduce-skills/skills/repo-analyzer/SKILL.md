@@ -9,6 +9,10 @@ allowed-tools: Bash Read Glob Grep Write
 
 CWD を解析し `reports/analysis.json` に出力。`reports/` は Phase 0 で作成済み。
 
+## 出力言語
+
+`overview.tagline` / `problem.input` / `problem.output` / `coord_convention.evidence` のような **読者向け散文** は環境変数 `$REPORT_LANG` (`ja` デフォルト / `en`) に従って書く。`overview.title`、`paper_url`、論文・ライブラリ名・コードシンボルは翻訳しない（原文ママ）。固定値 (`opencv`, `easy`, `medium`, `hard` などの enum 値) も翻訳しない。下記抽出方針の例は `ja` を想定しているので、`en` 指定時は同等の英語短文を生成する。
+
 ## Step 0.5: Project Overview 抽出
 
 人間向けの 1-2 文要約と論文リンクを `analysis.json.overview` に記録。Phase 4 で `report.html` 冒頭に表示。

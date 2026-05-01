@@ -214,6 +214,27 @@ def quick_z_range(path, n_sample=1000):
 - 可視化されていない raw mask / bbox / keypoint JSON のみ
 - Metrics only（ファイル出力なし）
 
+## 出力言語
+
+`samples.items[].label` と `samples.note` は環境変数 `$REPORT_LANG` (デフォルト `ja`、`en` も可) に従う。Step 4 表中の label 雛形は `ja` 想定。`en` 時の対応:
+
+| ja | en |
+|---|---|
+| 入力 → 出力 | Input → Output |
+| RGB → Depth (turbo) | RGB → Depth (turbo) |
+| Left / Right / Disparity | Left / Right / Disparity |
+| 再構成された 3D Gaussians | Reconstructed 3D Gaussians |
+| 再構成された点群 | Reconstructed point cloud |
+| 入力 → セグメンテーションマスク | Input → Segmentation mask |
+| 入力 → 検出結果 (bounding boxes) | Input → Detections (bounding boxes) |
+| 入力 → 姿勢推定 (keypoints) | Input → Pose (keypoints) |
+| Frame 1 / Frame 2 / Flow | Frame 1 / Frame 2 / Flow |
+| 再構成されたメッシュ | Reconstructed mesh |
+| 再構成結果 (orbit rendering) | Reconstruction (orbit rendering) |
+| 生成動画 | Generated video |
+
+`note` の固定句（例「部分的な成功」「coord inferred from 3DGS heritage」）も `$REPORT_LANG` に従う。固有名詞 (3DGS, PLY, OpenCV 等) は翻訳しない。
+
 ## 契約
 
 JSON 生成と `reports/samples/` 配置まで担当。HTML レンダリングは行わない（責務分離）。返した samples オブジェクトを Phase 4 Step 1.6 の呼び出し元が `report.json` に組み込む。

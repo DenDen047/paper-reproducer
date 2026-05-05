@@ -401,6 +401,38 @@ with open("reports/environment.json", "w") as f:
 - `high` は 0–2 件
 - `action` / `reason` は `$REPORT_LANG` (`ja` デフォルト / `en`) に従って書く。`command` フィールドはコマンド原文のまま（翻訳しない）
 
+### Step 1.7.5: 失敗の主因サマリ (failure_headline / failure_recoverability)
+
+**`status` が `success` のときはスキップ** (両フィールド `null`)。`failed` / `partial` / Phase 1 `infeasible` のときのみ生成し、サマリーカードに 1 行で表示する。`errors[]` 配列を全部読まなくても **「いま直せるのか / GPU を買うべきなのか / 諦めるべきなのか」** がレポートを開いた瞬間に判断できるようにする。
+
+#### `failure_headline`
+
+`errors[]` の中で **最も上流のブロッカー** (これを直さないと他のエラーが解決しても先に進まないもの) を 1 つ選び、**1-2 文 (最大 120 字、改行禁止)** で圧縮する。`$REPORT_LANG` (`ja` デフォルト / `en`) に従う。固有名詞・パッケージ名・ファイル名は原文ママ。
+
+良い例 (ja):
+- `"非公開ライブラリ animatrix が PyPI / GitHub のいずれにも存在せず、すべての推論スクリプトが import 段階で停止する。"`
+- `"NVIDIA A100 80GB でも GPU OOM が発生し、Step 5 (CPU fallback) でも RAM 不足で SIGKILL される。"`
+- `"setup.sh 23 行目に if [-d ] の構文エラーがあり、依存インストールが完走しない。"`
+
+悪い例:
+- 全部書く: `"animatrix が無く、setup.sh も壊れていて、データセットも公開されていない..."` (列挙は `errors[]` の役割)
+- 抽象的: `"環境構築が失敗した"` (ステータスバッジで既に分かる)
+- 解決策を含む: `"animatrix の代替を探す必要がある"` (それは `next_actions` の役割)
+
+#### `failure_recoverability`
+
+3 値 enum。次の優先順位で判定 (上から順、最初にマッチしたものを採用):
+
+| 値 | 判定基準 | バッジ色 |
+|---|---|---|
+| `blocked` | 非公開リソース / 認証必須 / 著者対応待ちで自力では解決不能。`errors[]` に `missing_private_*`, `missing_internal_*`, `no_public_*`, `needs_auth`, `private_repo`, `explicit_unofficial_warning`, `license_restricted`, `paywall` のいずれかを含む。または `next_actions[].cost` が `external_data` / `paid_api` 中心 | 赤 (= var(--failed)) |
+| `hardware` | GPU / CPU / RAM / disk のスペック不足 (= 強い PC を用意すれば動く)。`errors[]` に `OOM`, `no kernel image`, `gpu_arch_incompatible` (Step 4 まで失敗), `disk_full`, `vram_insufficient` のいずれかを含み、上記 `blocked` に該当しない | 橙 (= var(--partial)) |
+| `fixable` | 設定 / コード / 依存バージョンの修正で動く可能性が高い。`broken_setup_script`, `syntax_error`, `version_mismatch`, `module_not_found`, `config_typo`, `compile_failure` 等。または **Tier 0 / Tier 1 / Tier 2-config 範囲** に分類されるエラーが主因 | 黄 (= var(--success)) |
+
+**MUST**: `errors[]` が空でも `status != success` なら何かしら判定する (例: Phase 2 が pixi install で SegFault した未分類ケースは `fixable` をデフォルト)。
+
+判定ロジックは Claude が `errors[]` と `attempts.tsv` から推論する (機械的ヒューリスティクスではなく文脈判断)。
+
 ### Step 2: reports/report.json 生成（機械可読、SSOT）
 
 ```json
@@ -417,6 +449,8 @@ with open("reports/environment.json", "w") as f:
     "output": "string|null"
   },
   "status": "success|partial|failed",
+  "failure_headline": "string|null",
+  "failure_recoverability": "fixable|hardware|blocked|null",
   "dep_type": "string",
   "dep_type_label": "string",
   "total_attempts": "number",
@@ -508,6 +542,7 @@ with open("reports/environment.json", "w") as f:
 - `usage` → Step 1.5 の結果をそのまま。取れなかった階層は `null`（`advanced` のみ空配列 `[]`）
 - `samples` → Step 1.6 の結果をそのまま。パスは `reports/` 相対（例: `samples/input/left.png`）
 - `next_actions` → Step 1.7 の結果をそのまま。`report.html` とターミナル出力はここから読む
+- `failure_headline` / `failure_recoverability` → Step 1.7.5 の結果。`success` 時は両方 `null`
 - `archive_path` → Step 5 で生成されるアーカイブパス（親ディレクトリからの絶対）。Step 2 時点は `null` 仮置き、Step 5 成功時のみ更新
 
 **status 判定**（上から順、最初にマッチしたものを採用）:
@@ -625,6 +660,9 @@ PY
 | `{{PROBLEM_BLOCK}}` | `report.json.problem` をレンダリング |
 | `{{ENVIRONMENT_BLOCK}}` | `report.json.environment` をレンダリング |
 | `{{STATUS}}` | `report.json.status` |
+| `{{FAILURE_HEADLINE}}` | `report.json.failure_headline` (HTML エスケープ済み)。`null` のときはサマリーカードのセルごと非表示 (Mustache `{{#FAILURE_HEADLINE}}...{{/FAILURE_HEADLINE}}` で囲む) |
+| `{{FAILURE_RECOVERABILITY}}` | `report.json.failure_recoverability` の値そのまま (`fixable` / `hardware` / `blocked`)。CSS class `recoverability-{value}` で色分けされる |
+| `{{T_RECOVERABILITY_LABEL}}` | `recoverability_*` 文字列。値ごとに `recoverability_fixable` / `recoverability_hardware` / `recoverability_blocked` のいずれかを `i18n.json[$LANG_CODE]` から引き、置換する |
 | `{{DEP_TYPE}}` | `analysis.json.dep_type` + `dep_type_label` |
 | `{{TOTAL_ATTEMPTS}}` | `attempts.tsv` のデータ行数 |
 | `{{DURATION_TOTAL}}` | `report.json.duration_total_s` を `Hh Mm Ss` 形式に整形（例: "2m 34s" / "1h 11m 5s"） |
@@ -661,10 +699,15 @@ case "$LANG_CODE" in ja|en) ;; *) LANG_CODE=ja ;; esac
 # 条件ブロックは status / 値の有無に応じて有効化
 FLAG_ARGS=()
 STATUS=$(jq -r '.status' reports/report.json)
+HEADLINE=$(jq -r '.failure_headline // empty' reports/report.json)
 ARCHIVE=$(jq -r '.archive_path // empty' reports/report.json)
 case "$STATUS" in
   failed|partial)   FLAG_ARGS+=(--flag ERRORS) ;;
 esac
+if [ -n "$HEADLINE" ]; then
+  # サマリーカードに 1 行原因サマリ + recoverability バッジを表示
+  FLAG_ARGS+=(--flag FAILURE_HEADLINE)
+fi
 if [ -n "$ARCHIVE" ]; then
   # Artifacts セクションに 📦 アーカイブパスの行を表示
   FLAG_ARGS+=(--flag ARCHIVE_PATH)

@@ -25,7 +25,7 @@
 | `{{T_META_GENERATED}}` | `meta_generated` |
 | `{{T_H2_SUMMARY}}` / `{{T_H2_ENVIRONMENT}}` / `{{T_H2_OVERVIEW}}` / `{{T_H2_PROBLEM}}` / `{{T_H2_USAGE}}` / `{{T_H2_NEXT_ACTIONS}}` / `{{T_H2_SAMPLES}}` / `{{T_H2_ATTEMPTS}}` / `{{T_H2_ARTIFACTS}}` / `{{T_H2_PIXI}}` / `{{T_H2_ERRORS}}` | `h2_*` |
 | `{{T_H3_QUICKSTART}}` / `{{T_H3_ADVANCED}}` / `{{T_H3_DEVELOPER}}` | `h3_*` |
-| `{{T_LABEL_STATUS}}` / `{{T_LABEL_DEP_TYPE}}` / `{{T_LABEL_TOTAL_ATTEMPTS}}` / `{{T_LABEL_TOTAL_DURATION}}` / `{{T_LABEL_ARCHIVE}}` | `label_*` |
+| `{{T_LABEL_STATUS}}` / `{{T_LABEL_DEP_TYPE}}` / `{{T_LABEL_TOTAL_ATTEMPTS}}` / `{{T_LABEL_TOTAL_DURATION}}` / `{{T_LABEL_FAILURE_REASON}}` / `{{T_LABEL_ARCHIVE}}` | `label_*` |
 | `{{T_TH_NUM}}` / `{{T_TH_COMMIT}}` / `{{T_TH_PHASE}}` / `{{T_TH_ACTION}}` / `{{T_TH_INTENT}}` / `{{T_TH_RESULT}}` / `{{T_TH_TIER}}` / `{{T_TH_ERROR_SUMMARY}}` / `{{T_TH_DURATION_S}}` | `th_*` |
 | `{{T_LEGEND_SUMMARY}}` / `{{T_LEGEND_PHASE_HEADING}}` / `{{T_LEGEND_TIER_HEADING}}` / `{{T_LEGEND_PHASE0_DESC}}` … `{{T_LEGEND_PHASE4_DESC}}` / `{{T_LEGEND_TIER0_DESC}}` / `{{T_LEGEND_TIER1_DESC}}` / `{{T_LEGEND_TIER2_CONFIG_DESC}}` / `{{T_LEGEND_TIER2_HARDWARE_DESC}}` / `{{T_LEGEND_TIER3_DESC}}` / `{{T_LEGEND_DASH_DESC}}` | `legend_*` |
 | `{{T_WARN_FILE_PROTOCOL_TITLE}}` / `{{T_WARN_FILE_PROTOCOL_BODY}}` | `warn_file_protocol_*` |

@@ -23,7 +23,11 @@
     "label_dep_type": "依存タイプ",
     "label_total_attempts": "試行回数",
     "label_total_duration": "総所要時間",
+    "label_failure_reason": "失敗の主因",
     "label_archive": "アーカイブ",
+    "recoverability_fixable": "修正で動く可能性",
+    "recoverability_hardware": "ハードウェア要件不足",
+    "recoverability_blocked": "自力では解決不能",
 
     "label_hostname": "ホスト名",
     "label_os": "OS",
@@ -127,7 +131,11 @@
     "label_dep_type": "Dependency Type",
     "label_total_attempts": "Total Attempts",
     "label_total_duration": "Total Duration",
+    "label_failure_reason": "Primary Blocker",
     "label_archive": "Archive",
+    "recoverability_fixable": "Fixable",
+    "recoverability_hardware": "Hardware-bound",
+    "recoverability_blocked": "Blocked",
 
     "label_hostname": "Hostname",
     "label_os": "OS",

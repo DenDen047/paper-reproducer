@@ -67,6 +67,14 @@
   .priority-high { background: var(--failed); }
   .priority-medium { background: var(--partial); }
   .priority-low { background: var(--muted); }
+  .failure-headline { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px dashed var(--border); }
+  .failure-headline-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; }
+  .failure-headline-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .failure-headline-text { font-size: 0.95rem; color: var(--text); margin: 0; line-height: 1.4; }
+  .recoverability-badge { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: 0.05em; }
+  .recoverability-fixable { background: var(--success); }
+  .recoverability-hardware { background: var(--partial); }
+  .recoverability-blocked { background: var(--failed); }
   #file-protocol-warning { display: none; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
   #file-protocol-warning strong { display: block; margin-bottom: 0.5rem; color: #92400e; font-size: 0.95rem; }
   #file-protocol-warning p { margin: 0.25rem 0; font-size: 0.85rem; color: #78350f; }
@@ -127,6 +135,15 @@
       <span class="value">{{DURATION_TOTAL}}</span>
     </div>
   </div>
+  {{#FAILURE_HEADLINE}}
+  <div class="failure-headline">
+    <div class="failure-headline-row">
+      <span class="failure-headline-label">{{T_LABEL_FAILURE_REASON}}</span>
+      <span class="recoverability-badge recoverability-{{FAILURE_RECOVERABILITY}}">{{T_RECOVERABILITY_LABEL}}</span>
+    </div>
+    <p class="failure-headline-text">{{FAILURE_HEADLINE}}</p>
+  </div>
+  {{/FAILURE_HEADLINE}}
 </div>
 
 <!-- ===== Environment ===== -->

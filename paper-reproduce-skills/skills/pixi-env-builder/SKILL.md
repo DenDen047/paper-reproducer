@@ -1,6 +1,6 @@
 ---
 name: pixi-env-builder
-description: reports/analysis.json の dep_type に基づいて pixi.toml を生成する。denkiwakame ワークフロー (Day 17/19) に準拠。/reimplement の Phase 2 で自動参照される。
+description: reports/analysis.json の dep_type (A1-F) に基づき pixi.toml を生成する。Type 別の init_method 選択、conda/PyPI チャンネル割り振り、submodule の path 注入、no-build-isolation フラグ判定までを担う。/reimplement の Phase 2 で自動参照される。
 user-invocable: false
 allowed-tools: Bash Read Write Edit Glob Grep
 ---

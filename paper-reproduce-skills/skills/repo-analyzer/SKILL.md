@@ -1,6 +1,6 @@
 ---
 name: repo-analyzer
-description: リポジトリの依存管理方式を解析し、6-Type分類を行い reports/analysis.json を生成する。/reimplement の Phase 1 で自動参照される。
+description: 論文 GitHub リポジトリ (CWD) の依存ファイル (environment.yml / requirements.txt / pyproject.toml / Dockerfile / setup.py) を検出し 6-Type (A1-F) に分類、CUDA / PyTorch 要求と GPU 互換性、feasibility (ok / degraded / infeasible) を reports/analysis.json に書き出す。/reimplement の Phase 1 で自動参照される。
 user-invocable: false
 allowed-tools: Bash Read Glob Grep Write
 ---

@@ -649,6 +649,36 @@ PY
 - HTML エスケープ規則 (`<` `>` `&` `"` `'`)
 
 
+### Step 3.5: report.html の最終ゲート (finalize_report.py)
+
+Step 3 で i18n 置換と Mustache 風 `{{#X}}...{{/X}}` 条件ブロック展開を Claude が手動で行うため、置換漏れが発生し得る (実例: 旧版で `{{T_H2_ERRORS}}` がそのまま出力された事案)。**このステップは必ず実行する**。
+
+```bash
+LANG_CODE="${REPORT_LANG:-ja}"
+case "$LANG_CODE" in ja|en) ;; *) LANG_CODE=ja ;; esac
+
+# 条件ブロックは status / 値の有無に応じて有効化
+FLAG_ARGS=()
+STATUS=$(jq -r '.status' reports/report.json)
+case "$STATUS" in
+  failed|partial)   FLAG_ARGS+=(--flag ERRORS) ;;
+esac
+
+python3 /paper-reproduce-skills/scripts/finalize_report.py \
+  --input reports/report.html \
+  --i18n /paper-reproduce-skills/templates/i18n.json \
+  --lang "$LANG_CODE" \
+  "${FLAG_ARGS[@]}"
+```
+
+`finalize_report.py` の責務:
+1. `{{#FLAG}}...{{/FLAG}}` を `--flag` 指定通りに開閉処理 (未指定はブロック削除)
+2. 残った `{{T_*}}` を `i18n.json[lang]` から再 lookup して置換 (Step 3 の取りこぼしを救う)
+3. `{{I18N_JSON_INLINE}}` を未置換のままにしない (空辞書 `{}` で fallback)
+4. それでも残った未置換は **該当 H2 セクション / H3 行 / legend 行を非表示化**
+
+**ASSERTION**: 完了後に `grep -c '{{[A-Z]' reports/report.html` が **0** であること。
+
 ### Step 4: 成果物確認
 
 Phase 0 の「成果物レイアウト」通りに全ファイルが揃っているか確認。

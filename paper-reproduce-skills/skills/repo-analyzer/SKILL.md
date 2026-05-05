@@ -255,6 +255,31 @@ nvcc --version 2>/dev/null | grep -oP 'release \K[0-9.]+'
 
 `has_readme_install_section`: `grep -niE '^##+ (install|installation|setup|getting started|requirements)' README.md` が 1 件以上ヒットで `true`。Type D/F の依存抽出難度シグナル。
 
+## Step 10.5: GitHub slug 抽出
+
+`repo_url` (= `git remote get-url origin` を HTTPS 化したもの) から `owner/repo` 形式のスラッグを取り出し、`analysis.json.github_slug` に格納する。Phase 3 の `experiment-loop` と Phase 4 Step 1.8 が `gh search --repo "$github_slug"` で参照する。
+
+```bash
+# 例: https://github.com/animotionlab26/MocapAnything[.git] → animotionlab26/MocapAnything
+GITHUB_SLUG=$(echo "$REPO_URL" \
+  | sed -E 's#^git@github\.com:#https://github.com/#' \
+  | sed -E 's#^https?://github\.com/##' \
+  | sed -E 's#\.git$##' \
+  | sed -E 's#/$##')
+# owner/repo の形になっていなければ null
+if ! echo "$GITHUB_SLUG" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+  GITHUB_SLUG=""
+fi
+```
+
+GitHub 以外のホスティング (gitlab.com, bitbucket.org, 自己ホスト等) は対象外 → `null`。`gh` は GitHub 専用なので、ここで弾くことで Phase 3 / Phase 4 が無駄な検索を投げないようにする。
+
+スキーマ:
+
+```json
+"github_slug": "owner/repo|null"
+```
+
 ## Step 11: reports/analysis.json 出力
 
 全解析結果を `reports/analysis.json` に出力。スキーマは `/reimplement` の定義に従う。

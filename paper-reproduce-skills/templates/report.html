@@ -75,6 +75,14 @@
   .recoverability-fixable { background: var(--success); }
   .recoverability-hardware { background: var(--partial); }
   .recoverability-blocked { background: var(--failed); }
+  .related-issues-list { list-style: none; padding: 0; margin: 0; }
+  .related-issues-list li { padding: 0.4rem 0; border-bottom: 1px dashed var(--border); font-size: 0.85rem; }
+  .related-issues-list li:last-child { border-bottom: none; }
+  .ri-state { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: 0.05em; margin-right: 0.4rem; }
+  .ri-state-open { background: var(--success); }
+  .ri-state-closed { background: var(--muted); }
+  .ri-meta { color: var(--muted); font-size: 0.75rem; }
+  .ri-meta code { background: transparent; color: inherit; font-size: 0.75rem; }
   #file-protocol-warning { display: none; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
   #file-protocol-warning strong { display: block; margin-bottom: 0.5rem; color: #92400e; font-size: 0.95rem; }
   #file-protocol-warning p { margin: 0.25rem 0; font-size: 0.85rem; color: #78350f; }
@@ -247,6 +255,14 @@
 <!-- ===== pixi.toml ===== -->
 <h2>{{T_H2_PIXI}}</h2>
 <pre><code>{{PIXI_TOML_CONTENT}}</code></pre>
+
+<!-- ===== Related Issues / PRs (failed/partial/infeasible only) ===== -->
+{{#RELATED_ISSUES}}
+<h2>{{T_H2_RELATED_ISSUES}}</h2>
+<div class="card related-issues">
+{{RELATED_ISSUES_BLOCK}}
+</div>
+{{/RELATED_ISSUES}}
 
 <!-- ===== Errors (failed/partial only) ===== -->
 {{#ERRORS}}

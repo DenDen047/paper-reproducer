@@ -95,6 +95,7 @@ ldd --version | head -1
 {
   "repo_name": "string",
   "repo_url": "string",
+  "github_slug": "string|null",
   "overview": {
     "title": "string|null",
     "tagline": "string|null",
@@ -433,6 +434,40 @@ with open("reports/environment.json", "w") as f:
 
 判定ロジックは Claude が `errors[]` と `attempts.tsv` から推論する (機械的ヒューリスティクスではなく文脈判断)。
 
+### Step 1.8: 関連 GitHub Issue / PR の集約検索
+
+`status` が `failed` / `partial` / `infeasible` のときに限り、`analysis.json.github_slug` (Phase 1 で `repo_url` から導出) を使って同リポジトリの Issue / PR を gh で引き、**「同じ症状を踏んだ人がいないか」**を `report.json.related_issues` と `report.html` の新セクションに反映する。`success` 時はスキップ。
+
+クエリセット (重複除去のうえ最大 8 件、各 6 単語以下に正規化):
+1. `report.json.errors[]` の各文字列の**先頭 6 単語**（一番質の高い検索キー。例: `"missing_private_dependency animatrix utils.common"`）
+2. `attempts.tsv` の `result=failed` 行の `error_summary` 列の**先頭 6 単語**
+3. `next_actions[].action` の名詞句から抽出したトピック語（例: `TripoSG checkpoints`, `setup.sh syntax`）
+
+実行:
+
+```bash
+QUERIES=(); for q in "${ERROR_SUMMARIES[@]}" "${ATTEMPT_ERRS[@]}" "${TOPIC_TERMS[@]}"; do
+  QUERIES+=(--query "$q")
+done
+GITHUB_SLUG=$(jq -r '.github_slug // empty' reports/analysis.json)
+if [ -n "$GITHUB_SLUG" ]; then
+  bash /paper-reproduce-skills/scripts/search_github_issues.sh \
+    --repo "$GITHUB_SLUG" --kind both --limit 3 \
+    "${QUERIES[@]}" \
+    --output reports/_gh_aggregate.json
+  python3 /paper-reproduce-skills/scripts/build_related_issues_block.py \
+    --input reports/_gh_aggregate.json \
+    --i18n /paper-reproduce-skills/templates/i18n.json \
+    --lang "${REPORT_LANG:-ja}" \
+    --max 10 \
+    --output reports/_related_issues_block.html
+fi
+```
+
+`reports/_gh_aggregate.json.results[]` の上位 10 件を `report.json.related_issues` に転記する。`gh` 未インストール / 未認証 / rate-limit / マッチ 0 件のいずれの場合も中間 JSON は空配列 `{"results": []}` で生成され、ビルダは `<p class="usage-empty">{empty_related_issues}</p>` を返すため Phase 4 全体は決して止まらない。
+
+中間ファイル `_gh_aggregate.json` / `_related_issues_block.html` は Step 1 の中間ファイル削除で消す対象 (Step 3 で読み終わったあと)。
+
 ### Step 2: reports/report.json 生成（機械可読、SSOT）
 
 ```json
@@ -530,6 +565,17 @@ with open("reports/environment.json", "w") as f:
       "command": "string|null"
     }
   ],
+  "related_issues": [
+    {
+      "kind": "issue|pr",
+      "number": "number",
+      "title": "string",
+      "url": "string",
+      "state": "open|closed",
+      "updated_at": "string",
+      "matched_query": "string"
+    }
+  ],
   "archive_path": "string|null",
   "plugin_version": "1.0.0"
 }
@@ -543,6 +589,7 @@ with open("reports/environment.json", "w") as f:
 - `samples` → Step 1.6 の結果をそのまま。パスは `reports/` 相対（例: `samples/input/left.png`）
 - `next_actions` → Step 1.7 の結果をそのまま。`report.html` とターミナル出力はここから読む
 - `failure_headline` / `failure_recoverability` → Step 1.7.5 の結果。`success` 時は両方 `null`
+- `related_issues` → Step 1.8 の `_gh_aggregate.json.results[]` 上位 10 件をそのまま転記。`success` 時 / Step 1.8 スキップ時 / マッチ 0 件は空配列 `[]`
 - `archive_path` → Step 5 で生成されるアーカイブパス（親ディレクトリからの絶対）。Step 2 時点は `null` 仮置き、Step 5 成功時のみ更新
 
 **status 判定**（上から順、最初にマッチしたものを採用）:
@@ -676,6 +723,7 @@ PY
 | `{{NEXT_ACTIONS_BLOCK}}` | `next_actions` をレンダリング |
 | `{{PIXI_TOML_CONTENT}}` | pixi.toml の内容（HTML エスケープ済み） |
 | `{{ERRORS_LIST}}` | エラーの `<li>` リスト（`failed`/`partial` 時のみ） |
+| `{{RELATED_ISSUES_BLOCK}}` | Step 1.8 で生成した `reports/_related_issues_block.html` をそのまま挿入（`failed`/`partial`/`infeasible` 時のみ） |
 | `{{PLUGIN_VERSION}}` | `plugin.json.version` |
 
 **i18n placeholders と各ブロックの HTML レンダリング規則**: [`templates/RENDERING.md`](../templates/RENDERING.md) を参照。
@@ -684,7 +732,7 @@ PY
 - `{{HTML_LANG}}` / `{{T_TITLE_PREFIX}}` / `{{T_H2_*}}` / `{{T_H3_*}}` / `{{T_LABEL_*}}` / `{{T_TH_*}}` / `{{T_LEGEND_*}}` / `{{T_WARN_*}}` / `{{T_FOOTER_*}}` / `{{I18N_JSON_INLINE}}` の dict キー対応表
 - `OVERVIEW_BLOCK` / `PROBLEM_BLOCK` / `ENVIRONMENT_BLOCK` / `QUICKSTART/ADVANCED/DEVELOPER_BLOCK` / `SAMPLES_BLOCK` (image_pair / image_triple / gaussian_splat / point_cloud / mesh / video) / `NEXT_ACTIONS_BLOCK` の HTML 雛形
 - 各ブロックの空状態フォールバック (`empty_*` メッセージ)
-- 動的レンダリング時に追加で参照する dict キー (`label_*` / `empty_*` / `verified_badge` / `source_label` / `fig_*` / `note_*`)
+- 動的レンダリング時に追加で参照する dict キー (`label_*` / `empty_*` / `verified_badge` / `source_label` / `fig_*` / `note_*` / `related_issue_*`)
 - HTML エスケープ規則 (`<` `>` `&` `"` `'`)
 
 
@@ -712,6 +760,13 @@ if [ -n "$ARCHIVE" ]; then
   # Artifacts セクションに 📦 アーカイブパスの行を表示
   FLAG_ARGS+=(--flag ARCHIVE_PATH)
 fi
+case "$STATUS" in
+  failed|partial|infeasible)
+    # related_issues が 1 件以上、または gh スキップでも empty メッセージを表示するため
+    # 集約を実行したケース (status != success) では常に有効化
+    FLAG_ARGS+=(--flag RELATED_ISSUES)
+    ;;
+esac
 
 python3 /paper-reproduce-skills/scripts/finalize_report.py \
   --input reports/report.html \

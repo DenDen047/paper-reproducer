@@ -14,6 +14,7 @@
     "h2_artifacts": "生成物",
     "h2_pixi": "pixi.toml",
     "h2_errors": "エラー",
+    "h2_related_issues": "関連 Issue / PR",
 
     "h3_quickstart": "クイックスタート",
     "h3_advanced": "発展的な使い方",
@@ -48,6 +49,10 @@
     "empty_developer": "API 形式の利用方法は検出されませんでした。Quickstart スクリプトをそのまま使ってください。",
     "empty_samples": "サンプルはありません",
     "empty_next_actions": "特筆すべき次のアクションはありません。",
+    "empty_related_issues": "関連する Issue / PR は見つかりませんでした。",
+    "related_issue_state_open": "open",
+    "related_issue_state_closed": "closed",
+    "related_issue_matched_label": "マッチクエリ:",
 
     "verified_badge": "✓ Phase 3 で検証済み",
     "source_label": "出典:",
@@ -122,6 +127,7 @@
     "h2_artifacts": "Generated Artifacts",
     "h2_pixi": "pixi.toml",
     "h2_errors": "Errors",
+    "h2_related_issues": "Related Issues / PRs",
 
     "h3_quickstart": "Quickstart",
     "h3_advanced": "Advanced Usage",
@@ -156,6 +162,10 @@
     "empty_developer": "No API-style usage detected; use the Quickstart script directly.",
     "empty_samples": "No samples available",
     "empty_next_actions": "No notable next actions.",
+    "empty_related_issues": "No related issues or PRs found.",
+    "related_issue_state_open": "open",
+    "related_issue_state_closed": "closed",
+    "related_issue_matched_label": "Matched query:",
 
     "verified_badge": "✓ Verified in Phase 3",
     "source_label": "Source:",

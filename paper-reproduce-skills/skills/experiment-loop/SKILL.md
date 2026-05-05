@@ -280,8 +280,41 @@ while not succeeded:
     # 5. git commit
     # 6. pixi install / 推論実行
     # 7. END_TIME & DURATION 算出            ← 省略禁止
-    # 8. attempts.tsv にログ追記（成功・失敗問わず）← 省略禁止
-    # 9. 結果判定
+    # 8. (失敗時のみ) Tier が tier2-config / tier2-hardware / tier3 なら
+    #     scripts/search_github_issues.sh を 1 回呼び、関連 Issue 番号を error_summary に付記
+    # 9. attempts.tsv にログ追記（成功・失敗問わず）← 省略禁止
+    #10. 結果判定
     #    成功 → 次 Phase
     #    失敗 → Tier 分類 → 修正 → git reset → continue
 ```
+
+## GitHub Issue / PR 即時検索（失敗時のみ）
+
+`tier2-config` / `tier2-hardware` / `tier3` の失敗が出た瞬間に、同リポジトリの既存 Issue / PR を検索して `attempts.tsv` の `error_summary` 列に `[Issue #N]` プレフィックスを付ける。`tier0` / `tier1` は数秒で直る軽症なのでスキップ (rate-limit 配慮)。
+
+```bash
+GITHUB_SLUG=$(jq -r '.github_slug // empty' reports/analysis.json)
+
+case "$TIER" in
+  tier0|tier1) ;;
+  *)
+    if [ -n "$GITHUB_SLUG" ]; then
+      # 先頭 6 単語を gh の検索キーに (長文 error は精度を下げる)
+      ERR_KEY=$(echo "$ERROR_SUMMARY" | tr -s ' ' | cut -d' ' -f1-6)
+      bash /paper-reproduce-skills/scripts/search_github_issues.sh \
+        --repo "$GITHUB_SLUG" --kind issues --limit 3 \
+        --query "$ERR_KEY" \
+        --output "reports/_gh_attempt_${ATTEMPT}.json" || true
+      RELATED=$(jq -r '.results[0:2] | map("#\(.number)") | join(",")' \
+                  "reports/_gh_attempt_${ATTEMPT}.json" 2>/dev/null || echo "")
+      if [ -n "$RELATED" ]; then
+        ERROR_SUMMARY="[$RELATED] $ERROR_SUMMARY"
+      fi
+    fi
+    ;;
+esac
+```
+
+`scripts/search_github_issues.sh` は `gh` 未インストール / 未認証 / rate-limit のいずれの場合も exit 0 で空 `results: []` を返すため、このループは決して止まらない。`error_summary` 列内へのプレフィックス追記なので **`attempts.tsv` の 9 列構造は壊さない** (HTML テーブルとの行数 assertion も無傷)。
+
+中間 JSON `reports/_gh_attempt_*.json` は Phase 4 Step 1 の中間ファイル削除でクリーンアップする。

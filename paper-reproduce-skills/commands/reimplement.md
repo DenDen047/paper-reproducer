@@ -630,6 +630,7 @@ PY
 | `{{DURATION_TOTAL}}` | `report.json.duration_total_s` を `Hh Mm Ss` 形式に整形（例: "2m 34s" / "1h 11m 5s"） |
 | `{{ATTEMPTS_ROWS}}` | `attempts.tsv` 各行を `<tr class="result-{result}">` 化（9 列、TSV と同形・同順）。`result-*` class は Result 列の色付けに使用 |
 | `{{ARTIFACTS_LIST}}` | 生成物の `<li>` リスト |
+| `{{ARCHIVE_PATH}}` | `report.json.archive_path` (HTML エスケープ済み)。`null` のとき (= Phase 1 infeasible で Step 5.2 まで進まなかったケース) は Mustache `{{#ARCHIVE_PATH}}...{{/ARCHIVE_PATH}}` で行ごと非表示 |
 | `{{QUICKSTART_BLOCK}}` | `usage.quickstart` をレンダリング |
 | `{{ADVANCED_BLOCK}}` | `usage.advanced` をレンダリング |
 | `{{DEVELOPER_BLOCK}}` | `usage.developer` をレンダリング |
@@ -660,9 +661,14 @@ case "$LANG_CODE" in ja|en) ;; *) LANG_CODE=ja ;; esac
 # 条件ブロックは status / 値の有無に応じて有効化
 FLAG_ARGS=()
 STATUS=$(jq -r '.status' reports/report.json)
+ARCHIVE=$(jq -r '.archive_path // empty' reports/report.json)
 case "$STATUS" in
   failed|partial)   FLAG_ARGS+=(--flag ERRORS) ;;
 esac
+if [ -n "$ARCHIVE" ]; then
+  # Artifacts セクションに 📦 アーカイブパスの行を表示
+  FLAG_ARGS+=(--flag ARCHIVE_PATH)
+fi
 
 python3 /paper-reproduce-skills/scripts/finalize_report.py \
   --input reports/report.html \
@@ -712,7 +718,7 @@ done < <(jq -r '.samples.items[]? | .input_paths[]?, .output_paths[]?' reports/r
 ```
 `reports/attempts.tsv` と `reports/_baseline_sha` は Phase 0 で `.gitignore` 追加済みなので `git add reports/` には載らない。`reports/` 配下に新規ファイルが無ければ空コミットを skip する。
 
-**5.2 アーカイブ作成**（`status == "success"` のみ、他は skip → `archive_path=null`）:
+**5.2 アーカイブ作成**（`status == success | partial | failed` のいずれでも生成。Phase 1 で `infeasible` 判定により Step 5.1 を実行できなかったときのみ skip → `archive_path=null`）:
 ```bash
 REPO_NAME=$(basename "$PWD")
 SHORT_SHA=$(git rev-parse --short HEAD)
@@ -721,13 +727,13 @@ git archive --format=tar.gz --prefix="${REPO_NAME}-${SHORT_SHA}/" HEAD -o "${ARC
 ```
 `git archive HEAD` は追跡ファイルのみ（attempts.tsv / .pixi / モデル重みは含まない）。親ディレクトリに書けない場合は `/tmp/${REPO_NAME}-${SHORT_SHA}.tar.gz` にフォールバック。
 
+**partial / failed でも作る理由**: 後で別マシンで再開するときの起点 (修正済み pixi.toml, スクリプトパッチ, レポート一式) が一括で持ち運べる。`git archive HEAD` の生成は数秒・数十 MB で完了するためコストも低い。
+
 **5.3 `report.json.archive_path` 更新**（新規コミット、amend 禁止）:
 ```bash
 git add reports/report.json && git commit -m "chore: record archive path"
 ```
 アーカイブ内部の `report.json.archive_path` は `null` のままだがワーキングツリー側は最新なので Step 6 の出力に実害なし。
-
-**5.4 skip 時:** Step 6 で「⚠️ アーカイブは status=success 時のみ作成されます。現在は `{status}`」を明示。
 
 ### Step 6: Next Actions のターミナル出力
 
@@ -739,7 +745,7 @@ LANG=ja（デフォルト）:
 ## 再現完了
 
 ステータス: {status}
-アーカイブ: {archive_path or "(status != success のため未作成)"}
+アーカイブ: {archive_path or "(infeasible のため未作成)"}
 
 ## 次のアクション
 
@@ -760,7 +766,7 @@ LANG=en:
 ## Reproduction Complete
 
 Status: {status}
-Archive: {archive_path or "(not created; status != success)"}
+Archive: {archive_path or "(not created; Phase 1 infeasible)"}
 
 ## Next Actions
 

@@ -23,6 +23,7 @@
     "label_dep_type": "依存タイプ",
     "label_total_attempts": "試行回数",
     "label_total_duration": "総所要時間",
+    "label_archive": "アーカイブ",
 
     "label_hostname": "ホスト名",
     "label_os": "OS",
@@ -126,6 +127,7 @@
     "label_dep_type": "Dependency Type",
     "label_total_attempts": "Total Attempts",
     "label_total_duration": "Total Duration",
+    "label_archive": "Archive",
 
     "label_hostname": "Hostname",
     "label_os": "OS",

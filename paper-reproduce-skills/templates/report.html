@@ -49,6 +49,9 @@
   .artifacts ul { list-style: none; }
   .artifacts li { padding: 0.25rem 0; font-family: monospace; font-size: 0.85rem; }
   .artifacts li::before { content: "📄 "; }
+  .archive-path { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px dashed var(--border); font-size: 0.85rem; }
+  .archive-path code { font-family: monospace; color: var(--text); }
+  .archive-path::before { content: "📦 "; }
   .usage h3 { font-size: 1rem; margin: 0.75rem 0 0.5rem; color: var(--text); }
   .usage h3:first-child { margin-top: 0; }
   .usage h4 { font-size: 0.9rem; margin: 0.75rem 0 0.25rem; color: var(--muted); font-weight: 600; }
@@ -219,6 +222,9 @@
   <ul>
 {{ARTIFACTS_LIST}}
   </ul>
+  {{#ARCHIVE_PATH}}
+  <p class="archive-path"><strong>{{T_LABEL_ARCHIVE}}:</strong> <code>{{ARCHIVE_PATH}}</code></p>
+  {{/ARCHIVE_PATH}}
 </div>
 
 <!-- ===== pixi.toml ===== -->

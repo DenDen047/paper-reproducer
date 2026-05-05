@@ -46,8 +46,9 @@ CV 論文の GitHub リポジトリを Pixi 環境で全自動再現する。以
    ```
    attempt\tcommit\tphase\taction\tintent\tresult\terror_tier\terror_summary\tduration_s
    ```
-7. `.gitignore` に `reports/attempts.tsv` 追加
-8. `ls` で依存ファイル一覧取得（Phase 1 事前情報）
+7. `.gitignore` に `reports/attempts.tsv` と `reports/_baseline_sha` を追加
+8. `git rev-parse HEAD > reports/_baseline_sha` で再現作業の起点 SHA を記録（Phase 4 Step 2 の duration 計算で `BASELINE_SHA..HEAD` の span を取るために使う。既存リポを clone した場合、`git log --reverse` の最古コミットがリポ作成時 = 数年前を指すため）
+9. `ls` で依存ファイル一覧取得（Phase 1 事前情報）
 
 ### Pre-flight ガード（Phase 1 進入前に必ず通過）
 
@@ -537,9 +538,20 @@ awk -F'\t' 'NR>1 && $7 !~ /^(tier[013]|tier2-(config|hardware)|-)$/ {print "INVA
 
 ```bash
 SUM=$(awk -F'\t' 'NR>1 {s+=$9} END {print s+0}' reports/attempts.tsv)
-FIRST=$(git log --format='%at' --reverse | head -1)
-LAST=$(git log --format='%at' | head -1)
-SPAN=$((LAST - FIRST))
+
+# Phase 0 で記録した baseline SHA 以降のコミットだけを span 計算に使う。
+# 既存リポを再現対象にすると git log --reverse がリポ作成時 (数年前) を返すため、
+# BASELINE_SHA..HEAD で再現作業中のコミットだけに範囲を絞る。
+BASELINE_SHA=$(cat reports/_baseline_sha 2>/dev/null || echo "")
+if [ -n "$BASELINE_SHA" ] && git merge-base --is-ancestor "$BASELINE_SHA" HEAD 2>/dev/null; then
+    FIRST=$(git log --format='%at' --reverse "${BASELINE_SHA}..HEAD" | head -1)
+    LAST=$(git log --format='%at' | head -1)
+    SPAN=$((LAST - ${FIRST:-$LAST}))
+else
+    # baseline 不明 (古い再現セッション / 後付け実行) なら SPAN は 0 として SUM のみ採用
+    SPAN=0
+fi
+
 # 大きい方を採用。計測漏れで合算が過小でも git タイムスタンプが下限を保証
 DURATION_TOTAL=$(( SUM > SPAN ? SUM : SPAN ))
 ```
@@ -842,7 +854,7 @@ git status --porcelain
 git add reports/ pixi.toml pixi.lock
 git commit -m "chore: finalize reproduction reports"
 ```
-`reports/attempts.tsv` は Phase 0 で `.gitignore` 追加済みなので `git add reports/` には載らない。`reports/` 配下に新規ファイルが無ければ空コミットを skip する。
+`reports/attempts.tsv` と `reports/_baseline_sha` は Phase 0 で `.gitignore` 追加済みなので `git add reports/` には載らない。`reports/` 配下に新規ファイルが無ければ空コミットを skip する。
 
 **5.2 アーカイブ作成**（`status == "success"` のみ、他は skip → `archive_path=null`）:
 ```bash

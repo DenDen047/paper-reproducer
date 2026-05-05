@@ -71,7 +71,22 @@ awk -F'\t' '$3=="phase3" && $6=="success" {print $4}' reports/attempts.tsv | tai
 | `.png` / `.jpg` + 認識系キーワード | 該当 image_to_* |
 | 上記外 | grep 結果、最終的に `unknown` |
 
-3DGS PLY 判定: `head -c 4096 {file}.ply | grep -qE "property float (f_dc_0|scale_0|rot_0|opacity)"`。
+**3DGS PLY 判定** (4 属性すべて同時必須):
+
+```bash
+head -c 65536 "{file}.ply" > /tmp/_ply_head
+is_3dgs=true
+for k in f_dc_0 opacity scale_0 rot_0; do
+    grep -q "$k" /tmp/_ply_head || { is_3dgs=false; break; }
+done
+rm -f /tmp/_ply_head
+```
+
+1 個だけマッチしても 3DGS と判定しない (DTU 等の独自属性 PLY や法線属性 `n_dc_*` を持つ別形式の誤検出を防ぐため)。
+
+**PLY mesh の扱い (重要)**: 上の 3DGS 判定が偽で、かつヘッダに `element face` または `vertex_indices` を含む `.ply` は **`category=images_to_pointcloud`** (`type=point_cloud`) で扱う。`viewer-mesh` は `.glb/.gltf/.obj` のみ対応で `.ply` mesh は読み込めないため、Three.js `PLYLoader` + `THREE.Points` で点群描画にフォールバックする。
+
+**MUST NOT**: `.ply` mesh を `category=image_to_mesh` (= `type=mesh`) に分類しない。viewer が無音で読込失敗し、ブラウザに `<a href download>` のリンクが出る。
 
 ## Step 2: 入出力ファイル特定
 
@@ -198,6 +213,8 @@ def quick_z_range(path, n_sample=1000):
 - 変換失敗 item はスキップ、全滅なら `category="unknown"` + note
 - 実在しないファイルは記録しない
 - Phase 3 で使った同梱サンプル（`assets/`, `examples/`, `demo/`）は `reports/samples/input/` にコピー
+- **UV atlas / texture map / loss curve / debug visualization は独立 item にしない**。関連する 3D 成果物の `metadata` に記録する (例: textured mesh の `.png` テクスチャ → `metadata.texture_atlas: "samples/output/atlas.png"`、学習可視化 → `metadata.note`)。「画像で、入力画像と並べられる」だけで `image_pair` に分類しない (= 入力と意味的に対比できる出力かを確認する)。
+- **`reports/samples/` 配下に symlink を置かない**。`git archive HEAD` は symlink を含めるが、展開先で実体が無ければ dangling になる。`cp -L` で実体コピーする。
 
 ## status 別挙動
 

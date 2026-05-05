@@ -848,11 +848,30 @@ Phase 0 の「成果物レイアウト」通りに全ファイルが揃ってい
 
 ### Step 5: 最終コミットとアーカイブ
 
-**5.1 レポート類を 1 コミット:**
+**5.1 レポート類を 1 コミット + tracked 確認:**
 ```bash
 git status --porcelain
 git add reports/ pixi.toml pixi.lock
 git commit -m "chore: finalize reproduction reports"
+
+# 全 sample パスが git に乗ったか検証 (.gitignore 衝突 / symlink 切れの早期検出)。
+# git archive HEAD は追跡ファイルしか含めないため、ここで漏れていると Step 5.2 のアーカイブに穴が空く。
+# process substitution で while を親シェルで実行 (subshell の exit が無効化されるのを回避)。
+while IFS= read -r path; do
+    [ -z "$path" ] && continue
+    full="reports/$path"
+    if [ -L "$full" ]; then
+        echo "FAIL: $full is a symlink (git archive で dangling link を配布する危険)" >&2
+        echo "FIX: cp -L で実体コピーに置換、または symlink 削除して再 add" >&2
+        exit 1
+    fi
+    git ls-files --error-unmatch -- "$full" >/dev/null 2>&1 || {
+        echo "FAIL: $full not tracked (.gitignore 衝突の可能性)" >&2
+        echo "FIX: .gitignore に negation rule 追記 (例: '!reports/samples/output/*.ply')" >&2
+        echo "     その後: git add -f \"$full\" && git commit -m 'fix: include sample $path'" >&2
+        exit 1
+    }
+done < <(jq -r '.samples.items[]? | .input_paths[]?, .output_paths[]?' reports/report.json)
 ```
 `reports/attempts.tsv` と `reports/_baseline_sha` は Phase 0 で `.gitignore` 追加済みなので `git add reports/` には載らない。`reports/` 配下に新規ファイルが無ければ空コミットを skip する。
 

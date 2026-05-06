@@ -1156,6 +1156,52 @@ Archive: {archive_path or "(not created; Phase 1 infeasible)"}
 
 失敗しても止まらない。Tier 分類に従い自律的に修正・再試行。停止条件は全 Phase 完了または手動停止のみ。
 
+### Background / long-running は絶対パス (P3-A)
+
+`&` を伴う background タスク (curl / gdown / training など) と long-running command は、対象ファイルを **絶対パス** で指定する。`cd` で CWD を変えると次以降のコマンドにも CWD が引き継がれ (Claude Code の Bash tool 仕様)、`data/Points.zip` を見ようとして別ディレクトリで失敗するケースが起きる。
+
+```
+NG: cd data && curl -o Points.zip URL &
+OK: curl -o /workspaces/.../data/Points.zip URL &
+```
+
+repo 内ツールが相対パス前提の場合は `(cd repo && tool args)` のように **サブシェルに閉じ込める**。
+
+### ScheduleWakeup の idempotency (P3-B)
+
+ユーザーが続けて指示を入れると、wakeup 発火時にはタスクが既に完了していて、wakeup prompt が「同じ作業をやれ」と言ってくる race ahead が起きる。**prompt に「もし既に完了していたら status だけ報告して終了」を必ず含める**:
+
+```
+ScheduleWakeup({
+  delaySeconds: 1200,
+  reason: "checking 30k iter training progress",
+  prompt: "Check whether <task> finished.
+           **If already done in a prior turn, just report current state and exit — do NOT re-run.**
+           Otherwise: ..."
+})
+```
+
+Phase 3 の長期 DL / Phase 3.5 の training を待つ場合は必ずこのパターン。
+
+### Watcher loop は実 PID 監視 (P3-A2)
+
+`pgrep -f "<pattern>"` で background プロセスを待つと、**bash の eval された command 文字列自体に pattern が含まれる** ため `pgrep` が自分自身を見つけて永遠に exit しない (self-grep deadlock)。Phase 3 / Phase 3.5 の watcher は **保存した実 PID を `kill -0` で監視** する。
+
+```bash
+# NG (self-grep deadlock):
+until ! pgrep -f "mesh_extract" >/dev/null; do sleep 15; done
+
+# OK (filter own pid):
+SELF=$$
+until ! pgrep -f "mesh_extract" | grep -v "^${SELF}$" | grep -q .; do sleep 15; done
+
+# 一番安全 (実 PID を保存):
+PID_TO_WATCH=$(cat /tmp/tetra.pid)
+while kill -0 "$PID_TO_WATCH" 2>/dev/null; do sleep 15; done
+```
+
+`scripts/training_watcher.py` (P0-B / P3-C) も実 PID を `--pid` で受け取り `os.kill(pid, 0)` で監視するため、self-grep deadlock を踏まない。
+
 ### 依存関係の原則
 
 `pixi-env-builder` / `cuda-dependency-resolver` / `dep-converter` に委譲。Divide-and-Conquer、no-build-isolation、チャンネル順、CUDA 統一はそれらのスキル内で定義。ここでは重複して書かない。

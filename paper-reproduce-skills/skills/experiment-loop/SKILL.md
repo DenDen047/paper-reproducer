@@ -30,7 +30,7 @@ attempt\tcommit\tphase\taction\tintent\tresult\terror_tier\terror_summary\tdurat
 |---|---|
 | attempt | 1 からの連番 |
 | commit | git short hash (7 文字) |
-| phase | `phase0`–`phase4` のみ（`commands/reimplement.md` の macro phase と一致）。試行発生は `phase2`/`phase3` のみ。`2` / `Phase2` / `env-build` 禁止 |
+| phase | `phase0`–`phase4` のみ（`skills/reimplement/SKILL.md` の macro phase と一致）。試行発生は `phase2`/`phase3` のみ。`2` / `Phase2` / `env-build` 禁止 |
 | action | 導入した変更（例: `bump_libc_2.31`、`add_c_cxx_compiler`） |
 | intent | 試行の動機を 1-2 文で記述（最大 200 字、単一行、タブ禁止） |
 | result | `success` / `failed` / `crashed` / `timed_out` のみ（過去形統一）。装飾（`success(dry-run)` 等）は `error_summary` へ |
@@ -216,7 +216,7 @@ pixi.toml / コマンド引数 / env var の変更で直る。
 
 ## データ取得失敗の分類 (P2-B)
 
-`commands/reimplement.md` Phase 3 Step 1 (`data_acquisition_table` ベースの dataset DL) で発生する失敗を、`required_for_claims` の有無と組み合わせて分類する。
+`skills/reimplement/SKILL.md` Phase 3 Step 1 (`data_acquisition_table` ベースの dataset DL) で発生する失敗を、`required_for_claims` の有無と組み合わせて分類する。
 
 | 失敗種別 | 判定文字列 | tier / 扱い |
 |---|---|---|

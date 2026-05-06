@@ -4,7 +4,7 @@
 Phase 3.5 で動かす training プロセスを実 PID 監視し、
 NaN/Inf, OOM, artifact 未生成、it/s 低下 を検知する。
 検知したら abort_signal_file に tier 分類を書き込み、
-training プロセス本体は呼び出し側 (commands/reimplement.md Phase 3.5)
+training プロセス本体は呼び出し側 (skills/reimplement/SKILL.md Phase 3.5)
 が SIGTERM する。
 
 P3-A2 の self-grep deadlock を避けるため pgrep は使わない。

@@ -1,8 +1,8 @@
 # report.html レンダリング規則 (i18n + 動的ブロック)
 
-`commands/reimplement.md` Phase 4 Step 3 から参照される詳細仕様。テンプレート (`templates/report.html`) のプレースホルダのうち、**i18n 系** と **動的 HTML ブロック** (overview / problem / environment / usage / samples / next_actions) の組み立て方を定義する。
+`skills/reimplement/SKILL.md` Phase 4 Step 3 から参照される詳細仕様。テンプレート (`templates/report.html`) のプレースホルダのうち、**i18n 系** と **動的 HTML ブロック** (overview / problem / environment / usage / samples / next_actions) の組み立て方を定義する。
 
-**Content placeholders** (`{{REPO_NAME}}`, `{{ATTEMPTS_ROWS}}` 等の動的データ由来の値) と **基本フロー** (テンプレ複製 → 言語解決 → 置換 → finalize_report.py) は本ファイルではなく `commands/reimplement.md` Step 3 を参照。
+**Content placeholders** (`{{REPO_NAME}}`, `{{ATTEMPTS_ROWS}}` 等の動的データ由来の値) と **基本フロー** (テンプレ複製 → 言語解決 → 置換 → finalize_report.py) は本ファイルではなく `skills/reimplement/SKILL.md` Step 3 を参照。
 
 ## 目次
 

@@ -198,6 +198,20 @@ ldd --version | head -1
 }
 ```
 
+### Phase 1 Exit Gate (schema validation, P0-D)
+
+`reports/analysis.json` を出力したら **必ず** 以下で structural invariant を検証する。失敗時は `experiment-loop` の `Tier 2-config` として扱い、analysis.json の shape を修正して再生成する。Phase 2 に進ませない。
+
+```bash
+check-jsonschema --schemafile /paper-reproduce-skills/schemas/analysis.schema.json reports/analysis.json
+```
+
+このゲートで防ぐもの:
+- `feasibility.blockers` が string array vs object array のドリフト
+- `paper_claims=[]` のとき `claims_extraction.status` 欠落 (= 「論文 claim 無し」の理由 enum 必須)
+- `reproduction_mode=train_optional|train_required` のとき `training_recovery=null` (= resume 経路の保証)
+- `data_acquisition_table[].category` enum 違反
+
 ---
 
 ## Phase 2: Pixi 環境構築
@@ -894,6 +908,21 @@ DURATION_TOTAL=$(( SUM > SPAN ? SUM : SPAN ))
 ```
 
 `SUM < SPAN * 0.7` の場合は計測漏れの兆候。`note` に「duration_s 一部欠落」記載可、ただし `duration_total_s` は必ず大きい方（`SPAN`）を採用。
+
+#### Phase 4 Step 2 Exit Gate (schema validation, P0-D)
+
+`reports/report.json` を書き終えたら **必ず** 以下で structural invariant を検証する。失敗時は同 Step 内で修正し、ゲート通過まで Step 3 (HTML 生成) に進まない。
+
+```bash
+check-jsonschema --schemafile /paper-reproduce-skills/schemas/report.schema.json reports/report.json
+```
+
+このゲートで防ぐもの:
+- `samples.items[].type=mesh` で output が `.glb` / `.gltf` / `.obj` 以外 (= P1-A 違反、Three.js viewer 描画失敗)
+- `samples.items[].type=gaussian_splat | point_cloud` で output が `.ply` / `.splat` 以外
+- `samples.items[].type=video` で 3DGS 由来 (`metadata.rendered_from` 設定済) なら `metadata.ply_compatibility` 必須
+- `claims_verification[].status` enum 違反
+- `image_pair` / `image_triple` の input/output paths の件数不一致
 
 ### Step 3: reports/report.html 生成（目視確認）
 

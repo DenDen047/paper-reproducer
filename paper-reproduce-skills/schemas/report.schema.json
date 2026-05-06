@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DenDen047/paper-reproducer/schemas/report.schema.json",
+  "title": "report.json (Phase 4 Step 2 出力)",
+  "description": "重要な invariant のみを enforce。新規フィールド追加は許可。",
+  "type": "object",
+  "required": ["repo_name", "status", "samples"],
+  "properties": {
+    "repo_name": { "type": "string", "minLength": 1 },
+    "status":    { "enum": ["success", "partial", "failed"] },
+    "failure_headline":       { "type": ["string", "null"] },
+    "failure_recoverability": { "enum": ["fixable", "hardware", "blocked", null] },
+
+    "samples": {
+      "type": "object",
+      "required": ["category", "items"],
+      "properties": {
+        "category": {
+          "enum": [
+            "rgb_to_rgb", "mono_to_depth", "stereo_to_depth", "mv_to_gaussians",
+            "images_to_pointcloud", "image_to_mask", "image_to_bbox",
+            "image_to_keypoint", "frames_to_flow", "image_to_mesh",
+            "mv_to_nerf", "video_output", "unknown"
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sampleItem" }
+        }
+      }
+    },
+
+    "claims_verification": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["metric_name", "paper_target", "status"],
+        "properties": {
+          "metric_name":   { "type": "string", "minLength": 1 },
+          "paper_target":  { "type": "number" },
+          "tolerance":     { "type": "string" },
+          "observed":      { "type": ["number", "null"] },
+          "delta_rel_pct": { "type": ["number", "null"] },
+          "status":        { "enum": ["matched", "within_tolerance", "missed", "not_evaluated"] },
+          "claim_source":  { "type": "string" },
+          "evidence_path": { "type": ["string", "null"] }
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "sampleItem": {
+      "type": "object",
+      "required": ["type", "label", "input_paths", "output_paths"],
+      "properties": {
+        "type": {
+          "enum": ["image_pair", "image_triple", "gaussian_splat", "point_cloud", "mesh", "video"]
+        },
+        "label":        { "type": "string", "minLength": 1 },
+        "input_paths":  { "type": "array", "items": { "type": "string" } },
+        "output_paths": { "type": "array", "items": { "type": "string" } },
+        "metadata":     { "type": "object" }
+      },
+      "allOf": [
+        {
+          "description": "type=mesh は glb / gltf / obj のみ許可 (Three.js viewer 制約)。.ply mesh は P1-A の fallback chain で glb 化または point_cloud 降格すべき。",
+          "if": {
+            "properties": { "type": { "const": "mesh" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "output_paths": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "pattern": "\\.(glb|gltf|obj)$"
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "type=gaussian_splat / point_cloud は .ply / .splat / .ksplat のみ。",
+          "if": {
+            "properties": { "type": { "enum": ["gaussian_splat", "point_cloud"] } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "output_paths": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "pattern": "\\.(ply|splat|ksplat)$"
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "type=video は .mp4 / .webm / .avi のみ。3DGS 由来の video は metadata.rendered_from と ply_compatibility が必須 (P1-C)。",
+          "if": {
+            "properties": { "type": { "const": "video" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "output_paths": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "pattern": "\\.(mp4|webm|avi)$"
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "metadata.rendered_from が 3DGS PLY を指す場合は ply_compatibility 必須。",
+          "if": {
+            "properties": {
+              "type": { "const": "video" },
+              "metadata": {
+                "type": "object",
+                "required": ["rendered_from"],
+                "properties": { "rendered_from": { "type": "string" } }
+              }
+            },
+            "required": ["type", "metadata"]
+          },
+          "then": {
+            "properties": {
+              "metadata": {
+                "type": "object",
+                "required": ["ply_compatibility"],
+                "properties": {
+                  "ply_compatibility": { "enum": ["standard", "non_standard"] }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "image_pair は input/output が 1 件ずつ。",
+          "if": {
+            "properties": { "type": { "const": "image_pair" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "input_paths":  { "type": "array", "minItems": 1, "maxItems": 1 },
+              "output_paths": { "type": "array", "minItems": 1, "maxItems": 1 }
+            }
+          }
+        },
+        {
+          "description": "image_triple は input 2 + output 1。",
+          "if": {
+            "properties": { "type": { "const": "image_triple" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "input_paths":  { "type": "array", "minItems": 2, "maxItems": 2 },
+              "output_paths": { "type": "array", "minItems": 1, "maxItems": 1 }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

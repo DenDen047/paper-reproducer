@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DenDen047/paper-reproducer/schemas/analysis.schema.json",
+  "title": "analysis.json (Phase 1 出力)",
+  "description": "重要な invariant のみを enforce する。新規フィールド追加は許可 (additionalProperties: true)。",
+  "type": "object",
+  "required": ["repo_name", "repo_url", "dep_type", "feasibility", "reproduction_mode", "paper_claims"],
+  "properties": {
+    "repo_name":  { "type": "string", "minLength": 1 },
+    "repo_url":   { "type": "string", "minLength": 1 },
+    "github_slug": { "type": ["string", "null"] },
+
+    "feasibility": {
+      "type": "object",
+      "required": ["status", "blockers"],
+      "properties": {
+        "status": { "enum": ["ok", "degraded", "infeasible"] },
+        "blockers": {
+          "type": "array",
+          "description": "object 形式で統一 (string とのユニオン禁止)。空配列 OK。",
+          "items": {
+            "type": "object",
+            "required": ["id", "detail"],
+            "properties": {
+              "id":       { "type": "string", "minLength": 1 },
+              "detail":   { "type": "string", "minLength": 1 },
+              "severity": { "enum": ["info", "warn", "error"] },
+              "recovery": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "reproduction_mode": {
+      "enum": ["inference_only", "train_required", "train_optional"]
+    },
+    "training_recovery": {
+      "type": ["object", "null"],
+      "properties": {
+        "checkpoint_interval_iters": { "type": ["integer", "null"], "minimum": 1 },
+        "checkpoint_dir_pattern":    { "type": ["string", "null"] },
+        "resume_arg":                { "type": ["string", "null"] }
+      }
+    },
+
+    "paper_claims": {
+      "type": "array",
+      "description": "論文 Table N の claim を抽出。空配列なら claims_extraction.status を必須とする (allOf で強制)。",
+      "items": {
+        "type": "object",
+        "required": ["id", "metric_name", "paper_target", "tolerance", "claim_source"],
+        "properties": {
+          "id":            { "type": "string", "minLength": 1 },
+          "metric_name":   { "type": "string", "minLength": 1 },
+          "paper_target":  { "type": "number" },
+          "tolerance":     { "type": "string", "minLength": 1 },
+          "claim_source":  { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+
+    "claims_extraction": {
+      "type": "object",
+      "description": "paper_claims が空の理由を明示するメタ情報。空でも非空でも常に書く。",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "enum": ["extracted", "no_quantitative_claims", "paper_unavailable", "extraction_failed"]
+        },
+        "evidence": { "type": ["string", "null"] }
+      }
+    },
+
+    "data_acquisition_table": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "category", "required_for_claims"],
+        "properties": {
+          "name":     { "type": "string", "minLength": 1 },
+          "url":      { "type": ["string", "null"] },
+          "size_gb_estimated":   { "type": ["number", "null"], "minimum": 0 },
+          "size_gb_probed":      { "type": ["number", "null"], "minimum": 0 },
+          "category": { "enum": ["bundled", "auto-fetch", "assisted", "gated", "blocked"] },
+          "required_for_claims": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "preprocess": { "enum": ["none", "repo_script", "external_tool"] },
+          "disk_after_extract_gb": { "type": ["number", "null"], "minimum": 0 },
+          "probe": {
+            "type": ["object", "null"],
+            "properties": {
+              "method":     { "enum": ["http_head", "gdown_dry_run", "hf_api", "none"] },
+              "reachable":  { "type": "boolean" },
+              "checked_at": { "type": "string" },
+              "evidence":   { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "allOf": [
+    {
+      "description": "paper_claims が空配列なら claims_extraction.status は extracted 以外でなければならない。",
+      "if": {
+        "properties": { "paper_claims": { "type": "array", "maxItems": 0 } },
+        "required": ["paper_claims"]
+      },
+      "then": {
+        "required": ["claims_extraction"],
+        "properties": {
+          "claims_extraction": {
+            "properties": {
+              "status": { "enum": ["no_quantitative_claims", "paper_unavailable", "extraction_failed"] }
+            },
+            "required": ["status"]
+          }
+        }
+      }
+    },
+    {
+      "description": "paper_claims が非空なら claims_extraction.status=extracted で evidence 必須。",
+      "if": {
+        "properties": { "paper_claims": { "type": "array", "minItems": 1 } },
+        "required": ["paper_claims"]
+      },
+      "then": {
+        "required": ["claims_extraction"],
+        "properties": {
+          "claims_extraction": {
+            "properties": {
+              "status":   { "const": "extracted" },
+              "evidence": { "type": "string", "minLength": 1 }
+            },
+            "required": ["status", "evidence"]
+          }
+        }
+      }
+    },
+    {
+      "description": "reproduction_mode=train_optional は checkpoint URL が paper_claims を全て eval 可能な前提。training_recovery が null では train_optional を許可しない。",
+      "if": {
+        "properties": { "reproduction_mode": { "const": "train_optional" } },
+        "required": ["reproduction_mode"]
+      },
+      "then": {
+        "required": ["training_recovery"],
+        "properties": {
+          "training_recovery": { "type": "object" }
+        }
+      }
+    },
+    {
+      "description": "reproduction_mode=train_required も training_recovery を必須化 (resume 経路を持つこと)。",
+      "if": {
+        "properties": { "reproduction_mode": { "const": "train_required" } },
+        "required": ["reproduction_mode"]
+      },
+      "then": {
+        "required": ["training_recovery"],
+        "properties": {
+          "training_recovery": { "type": "object" }
+        }
+      }
+    }
+  ]
+}

@@ -54,7 +54,9 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # bootstrap.sh が host の ~/.claude/settings.json を mount するため、
 # host 側の PreToolUse:Bash hook (rtk hook claude) が container 内にも見える。
 # rtk が無いと全 Bash コマンドの直前で hook が失敗するので container にも入れる。
-RUN pixi global install rtk-cli
+# check-jsonschema は Phase 1 / Phase 4 の schema gate で使う (analysis.json /
+# report.json の structural invariants を機械検証する)。
+RUN pixi global install rtk-cli check-jsonschema
 
 ENV PATH=/home/claude/.pixi/bin:/home/claude/.local/bin:$PATH
 

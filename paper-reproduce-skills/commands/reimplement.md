@@ -580,6 +580,8 @@ with open("reports/environment.json", "w") as f:
 
 **`sample-embedder` スキル参照。** Phase 3 の成功コマンドから入出力ファイルを特定し、`reports/samples/` に正規化コピーして `samples` オブジェクトを生成する。
 
+`samples.category == "mv_to_gaussians"` の場合、sample-embedder Step 4.5.5 に従って **動画を主出力にする**。`scripts/render_gaussian_video.py --check-ply` で互換性を判定し、`render.py` (または fallback) を呼んで mp4 を生成、`reports/samples/output/recon_orbit.mp4` に置く。standard PLY のみ interactive viewer も併用 embed。non-standard なら video のみ。
+
 ### Step 1.7: Next Actions の生成
 
 再現作業後のユーザーアクションを `next_actions` 配列として生成。Step 2 で `report.json` に組み込み、Step 3 で `report.html` にレンダリング、Step 6 でターミナル出力（3 箇所で同一ソース）。

@@ -114,6 +114,36 @@ grep -nE "add_argument.*--(input|output|left|right|img|save)" {demo_script}.py
 
 どちらも不確実なら `category="unknown"`, `items=[]`, `note` に理由。
 
+## Step 2.5: mesh format 正規化 (glb 強制)
+
+`type=mesh` の sample の input が `.ply` / `.stl` / `.off` 等の場合、Three.js の `GLTFLoader` / `OBJLoader` は読めない (RENDERING.md で対応形式は `.glb` / `.gltf` / `.obj` のみと明記)。**samples/output/ に置く前に `.glb` (単一バイナリ) に変換する**。
+
+> `.ply` で `element face` を含む mesh は `category=images_to_pointcloud` で点群表示する別ルート (Step 1) があるが、そちらは「mesh 表示を諦めて点群描画にフォールバック」する保険。本セクションは「mesh として表示したい」ケースの正規化。
+
+### 変換 fallback chain (順に試行、最初に成功した経路を採用)
+
+1. **open3d**: `o3d.io.read_triangle_mesh` → `simplify_quadric_decimation(target=200_000)` → `trimesh.load(...).export('.glb')`
+   - faces 0 件 / 多様体エラー / texture 参照解決失敗のいずれかで失敗
+2. **trimesh**: `trimesh.load(<src>, force='mesh')` → `export('.glb')` (vertex_colors を保持、texture は破棄)
+3. **pymeshlab**: `MeshSet().load_new_mesh(<src>)` → `meshing_remove_unreferenced_vertices` → `save_current_mesh(<dst.glb>)` (non-manifold cleanup)
+4. **最終 fallback**: `type=mesh` を諦めて `type=point_cloud` に降格
+   - mesh.vertices だけ抽出し `.ply (point_cloud)` として埋め込む
+   - `note` フィールドに「mesh 変換不可のため点群表示。フル mesh は <output_dir>/<file>」を追記
+
+### glTF 出力ルール
+
+- 必ず `.glb` (単一バイナリ) に書き出す
+- `.gltf` + 外部 texture 参照は Three.js の CORS / 相対パス解決でハマるため使わない
+
+### サイズ制約 (hard limit)
+
+| type | hard limit | 超過時 |
+|---|---|---|
+| `glb` mesh | 5 MB | `simplify_quadric_decimation` の target を半減して再変換、それでも超えるなら fallback chain の次へ |
+| `ply` gaussian_splat / point_cloud | 15 MB | Step 4.6 (Gaussian PLY subsample) で対処 |
+
+faces 数や point 数を上限化するのではなく **byte 上限のみ** で判定する (Gaussian PLY は SH 係数 / scale / rotation / opacity を含み点数と byte が線形でないため)。
+
 ## Step 3: reports/samples/ 配置
 
 ```bash
@@ -128,7 +158,8 @@ mkdir -p reports/samples/input reports/samples/output
 | 16bit / float depth (PNG/NPY/PFM) | colormap (turbo) 正規化 | PNG |
 | `.flo` | color-wheel | PNG |
 | `.exr` | OpenCV 読込正規化 | PNG |
-| `.ply` / `.splat` / `.glb` / `.gltf` / `.obj` / `.mp4` / `.webm` / `.avi` | そのまま（ブラウザ描画） | 同形式 |
+| `.ply` (point_cloud / gaussian_splat) / `.splat` / `.glb` / `.gltf` / `.obj` / `.mp4` / `.webm` / `.avi` | そのまま（ブラウザ描画） | 同形式 |
+| `.ply` (mesh, `element face` あり) / `.stl` / `.off` で `type=mesh` | Step 2.5 の fallback chain で `.glb` に変換 | `.glb` |
 | その他 | スキップして note | — |
 
 3D/動画は圧縮しない（Three.js / `<video>` が直接読む）。`.flo` は Middlebury 形式（magic=202021.25, w/h int32, data float32 HxWx2）。
@@ -175,6 +206,150 @@ else:
 | `video_output` | 生成動画 | [] | 1 | `{"format": "mp4"}` |
 
 認識系（mask / bbox / keypoint）は pre-visualized overlay RGB がある場合のみ採用。座標/raw mask のみなら `unknown` + note。`mv_to_nerf` は orbit 動画なしなら `unknown`。
+
+## Step 4.5.5: 3D Gaussian の主出力を動画化 (`mv_to_gaussians` のみ)
+
+Three.js の `gaussian-splats-3d` viewer は標準 3DGS スキーマ (`f_dc_*`, `scale_0..2`, `rot_0..3`, `opacity` 等) を前提とする。論文派生 (2DGS / Scaffold-GS / GoF / GeoGS / Mip-Splatting 等) はスキーマを拡張・改変するため、**ブラウザでのレンダリングが失敗または不正表示**になる。確実な可視化のため、`mv_to_gaussians` の **主出力を動画 (.mp4) に切り替える**。
+
+### Step 4.5.5-a: PLY 互換性検証
+
+`scripts/render_gaussian_video.py --check-ply $PLY` が JSON を返す:
+
+```json
+{"is_standard": true|false, "missing": [...], "extra": [...], "reason": "missing scale_2 (likely 2DGS / planar gaussian)"}
+```
+
+`required = {x,y,z, f_dc_0..2, scale_0..2, rot_0..3, opacity}` の部分集合を満たさなければ non_standard。
+
+### Step 4.5.5-b: 動画レンダリング (順に試行、最初に成功した経路を採用)
+
+1. **repo の `render.py` を呼ぶ** (推奨、paper 視点と一致):
+
+   ```bash
+   pixi run python render.py \
+     --model_path "$MODEL_PATH" \
+     --source_path "$DATA_PATH" \
+     --skip_train       # test cameras のみレンダリング
+   # output: $MODEL_PATH/test/ours_<iter>/renders/*.png
+
+   pixi run python /paper-reproduce-skills/scripts/render_gaussian_video.py \
+     --frames-dir "$MODEL_PATH/test/ours_*/renders" \
+     --output-mp4 reports/samples/output/recon_orbit.mp4 \
+     --fps 30 --target-mb 12
+   ```
+
+   **NOTE (滑らかさ優先)**: `--target-mb` は 12 MB がデフォルト。動画サイズより **motion の連続性が大事** なので、`render_gaussian_video.py` は target 超過時に crf / 解像度だけ下げて **frame 数は絶対に削らない**。「2 秒スナップショット動画」のような出力は禁止。
+
+2. **`render.py` が無い / interface が異なる場合**:
+   - `<repo>/scripts/render_video.py` / `<repo>/eval.py --visualize` / `<repo>/demo.py` を順に試行
+   - LLM が repo を grep して renderer entry point (`Scene.render` / `GaussianRasterizer` 等) を見つけ、最小スクリプトを `reports/_render_video.py` に書き出して実行
+
+3. **どうしても render できない場合**:
+   - PLY が standard なら interactive viewer のみ embed (従来通り、subsample は Step 4.6 適用)
+   - PLY が non_standard なら sample 化を諦め、`samples.items` から外したうえで `samples.note` に `"非標準 3DGS のためブラウザ表示および動画レンダリング不可。フル PLY は <source_path>"` を記録
+
+### Step 4.5.5-c: カメラ軌道
+
+- repo の test cameras があればそれを使う (= paper の qualitative 比較と同じ視点)
+- test cameras が無い場合: scene centroid を中心とした 360° 円軌道、120 frame、30 fps、elevation 固定 ~20°、半径 = `scene_diagonal × 1.2`。`reports/_orbit_cameras.py` に書き出して実行
+
+### Step 4.5.5-d: report.json schema での扱い
+
+video sample (主出力):
+
+```json
+{
+  "type": "video",
+  "label": "Reconstruction (rendered)",
+  "input_paths": [],
+  "output_paths": ["samples/output/recon_orbit.mp4"],
+  "metadata": {
+    "rendered_from": "output/exp1/point_cloud.ply",
+    "render_method": "repo_render_py|repo_eval_visualize|custom_renderer|orbit_synthetic",
+    "frames": 120,
+    "fps": 30,
+    "resolution": [1920, 1080],
+    "ply_compatibility": "standard|non_standard",
+    "ply_compatibility_reason": null,
+    "source_path": "output/exp1/point_cloud.ply"
+  }
+}
+```
+
+- `is_standard=true` のときは **動画 + interactive viewer** を併用 embed (`samples.items` に 2 件、`type=video` と `type=gaussian_splat`)
+- `is_standard=false` のときは **動画のみ** (`type=gaussian_splat` を出さない、ブラウザで歪む)
+
+## Step 4.6: Gaussian PLY の byte 上限と subsample (interactive viewer 併用時のみ)
+
+> P1-C により 3DGS の主出力は video に切り替わるため、本セクションは **standard PLY を `type=gaussian_splat` として interactive viewer 併用 embed する場合のみ** 適用。
+
+`samples/output/*.ply` (gaussian_splat / point_cloud) のサイズは **15 MB** を hard limit とする。30k iter の `point_cloud.ply` は典型 100-300 MB なので、ブラウザ用 sample にはそのまま入れない (`samples/` の役割は「ブラウザ表示用」、フル解像度生成物は別)。
+
+### 判定
+
+byte 上限 (15 MB) のみで判定。点数で切らない (Gaussian PLY は SH 係数 / scale / rotation / opacity を含み点数と byte が線形でないため)。
+
+**target は hard limit ぎりぎり (= 13 MB ≈ 87% of 15 MB) を狙う**。最初の voxel_size 推定でいきなり 1-2 MB に削ってしまうと、ブラウザビューワが極端にスパースになり「再構成が見えない」と苦情が来る (実フィードバック由来)。
+
+### voxel_size 反復探索 (推奨フロー)
+
+`voxel_down_sample` の voxel_size 1 発勝負ではなく、binary search で hard limit に近い voxel_size を見つける:
+
+```python
+import open3d as o3d, os
+pcd = o3d.io.read_point_cloud(src)
+HARD_LIMIT = 15 * 1024 * 1024
+TARGET = 13 * 1024 * 1024  # 87% of hard limit
+
+def write_size(p):
+    o3d.io.write_point_cloud("/tmp/_probe.ply", p, write_ascii=False)
+    return os.path.getsize("/tmp/_probe.ply")
+
+lo, hi = 1e-4, 1.0
+best = None
+for _ in range(12):  # 12 回で 4096 倍の dynamic range をカバー
+    v = (lo + hi) / 2
+    sub = pcd.voxel_down_sample(v)
+    sz = write_size(sub)
+    if sz > HARD_LIMIT:
+        lo = v          # まだ密すぎ → voxel を大きく
+    elif sz < TARGET * 0.7:
+        hi = v          # スパースすぎ → voxel を小さく
+        best = (v, sub, sz)
+    else:
+        best = (v, sub, sz); break
+```
+
+最終的な `(voxel_size, sub, sampled_size_bytes)` を採用。`best` が `None` のまま終わったら最終値で採用 (= 探索が境界に張り付いた)。
+
+### subsample 順 (順に試行)
+
+1. **default = spatial (voxel-downsample)** — `open3d.geometry.PointCloud.voxel_down_sample(voxel_size)` で空間的に均一化。voxel_size は `(scene_diagonal / target_density)` から自動算出。Gaussian PLY は密度に強い偏りがあり、random だと前景 / 細部が消えやすい
+2. **fallback = farthest-point sampling** — voxel が偏ったときの代替 (`open3d.geometry.PointCloud.farthest_point_down_sample(num_samples)`)
+3. **最終 fallback = random** — 上記 2 つが利用不可なときのみ。seed 固定 (`np.random.seed(0)`)
+
+### metadata schema
+
+```json
+"metadata": {
+  "original_point_count": 1850000,
+  "sampled_point_count": 48512,
+  "original_size_bytes": 254800000,
+  "sampled_size_bytes": 14700000,
+  "sampling_method": "voxel_down_sample|farthest_point|random",
+  "voxel_size": 0.012,
+  "seed": null,
+  "source_path": "output/exp1/point_cloud.ply"
+}
+```
+
+`sampling_method=random` のときだけ `seed` を非 null。`source_path` はフル解像度の生成物への相対パス (リポ内に残す)。
+
+### note フィールド
+
+`samples.items[].note` または `samples.note` に、`$REPORT_LANG` に従って:
+- ja: `"ブラウザビューワ用に空間サンプリング (voxel={voxel_size})。フル解像度は {source_path}"`
+- en: `"Spatial subsample for browser viewer (voxel={voxel_size}). Full resolution at {source_path}"`
 
 ## Step 4.5: 座標系規約の埋め込み（3D types のみ）
 

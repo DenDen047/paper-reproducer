@@ -165,20 +165,20 @@ null 時: `<p class="usage-empty">{dict.empty_developer}</p>`
 <div class="sample-item">
   <h4>{label}</h4>
   <div class="viewer-3d viewer-gsplat" data-src="{output_paths[0]}" data-coord-convention="{metadata.coord_convention}"></div>
-  <p class="usage-note">{dict.note_gaussians} {metadata.gaussian_count}</p>
+  <p class="usage-note">{dict.note_gaussians} {metadata.sampled_point_count ?? metadata.gaussian_count}{metadata.sampled_point_count != null ? ' / ' + metadata.original_point_count + ' (' + metadata.sampling_method + ')' : ''}</p>
 </div>
 ```
-ビューワ本体は template 末尾の `<script type="module">` が Three.js + `@mkkellogg/gaussian-splats-3d` を CDN importmap 経由で動的初期化。GS viewer は既に `cameraUp=[0,-1,0]` で OpenCV 規約に対応済みのため、現状は `data-coord-convention` を読まない（将来的に opengl 入力を扱う際の予約属性）。
+ビューワ本体は template 末尾の `<script type="module">` が Three.js + `@mkkellogg/gaussian-splats-3d` を CDN importmap 経由で動的初期化。GS viewer は既に `cameraUp=[0,-1,0]` で OpenCV 規約に対応済みのため、現状は `data-coord-convention` を読まない（将来的に opengl 入力を扱う際の予約属性）。`metadata.sampled_point_count` 非 null の場合 (= P1-B subsample 適用) はサンプリング方式と元点数を併記。
 
 **`point_cloud`**:
 ```html
 <div class="sample-item">
   <h4>{label}</h4>
   <div class="viewer-3d viewer-pointcloud" data-src="{output_paths[0]}" data-coord-convention="{metadata.coord_convention}"></div>
-  <p class="usage-note">{dict.note_points} {metadata.point_count}</p>
+  <p class="usage-note">{dict.note_points} {metadata.sampled_point_count ?? metadata.point_count}{metadata.sampled_point_count != null ? ' / ' + metadata.original_point_count + ' (' + metadata.sampling_method + ')' : ''}</p>
 </div>
 ```
-ビューワは Three.js `PLYLoader` + `THREE.Points`。`data-coord-convention="opencv"` で X 軸 180° 回転 (`points.rotateX(π)`)、`"z_up"` で X 軸 -90° 回転。
+ビューワは Three.js `PLYLoader` + `THREE.Points`。`data-coord-convention="opencv"` で X 軸 180° 回転 (`points.rotateX(π)`)、`"z_up"` で X 軸 -90° 回転。`metadata.sampled_point_count` 非 null の場合 (= P1-B subsample 適用) はサンプリング方式を併記。
 
 **`mesh`**:
 ```html
@@ -199,6 +199,8 @@ null 時: `<p class="usage-empty">{dict.empty_developer}</p>`
   </video>
 </div>
 ```
+
+3DGS 由来の video (`metadata.rendered_from` 非 null) は `metadata.render_method` ∈ `{repo_render_py, repo_eval_visualize, custom_renderer, orbit_synthetic}` と `metadata.ply_compatibility` ∈ `{standard, non_standard}` を持つ。`non_standard` の場合は `metadata.ply_compatibility_reason` (例: `"missing scale_2 (likely 2DGS)"`) を `note_format` の代わりに `<p class="usage-note">` に表示する。
 
 空配列時: `<p class="usage-empty">{dict.empty_samples}{note ? ' (' + note + ')' : ''}.</p>`
 

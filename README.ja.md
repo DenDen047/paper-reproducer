@@ -4,9 +4,7 @@
   <img src="docs/logo.png" alt="paper-reproducer logo" width="720">
 </p>
 
-<p align="center">
-  <strong>CV論文リポジトリを、Pixiで固定された実行環境・リトライログ・監査しやすいレポートに変換するツール。</strong>
-</p>
+💡 *CV論文リポジトリを、Pixiで固定された実行環境・リトライログ・監査しやすいレポートに変換するツール。*
 
 <p align="center">
   <a href="README.md">English</a> ·
@@ -39,7 +37,7 @@
 - README、Issue、スクリプトに散らばった重み・データセット・実行コマンド
 - 失敗した試行がログとして残らず、次の人が同じ調査を繰り返す問題
 
-`paper-reproducer` は、この作業を Pixi、Docker、構造化されたレポートで標準化します。
+`paper-reproducer` は、この作業を Pixi、Docker、構造化された記録で標準化し、各試行を確認・再実行・引き継ぎしやすくします。
 
 ## 何をするか
 
@@ -61,9 +59,9 @@
 - バッチモードでは `tmux` と `flock`
 
 ```bash
-git clone https://github.com/DenDen047/paper-reproducer.git
-cd paper-reproducer
-./bootstrap.sh https://github.com/some-user/some-paper.git
+$ git clone https://github.com/DenDen047/paper-reproducer.git
+$ cd paper-reproducer
+$ ./bootstrap.sh https://github.com/some-user/some-paper.git
 ```
 
 Claude Code がコンテナ内で起動したら、次を実行します。
@@ -75,7 +73,7 @@ Claude Code がコンテナ内で起動したら、次を実行します。
 英語レポートを出したい場合は `--lang en` を付けます。
 
 ```bash
-./bootstrap.sh --lang en https://github.com/some-user/some-paper.git
+$ ./bootstrap.sh --lang en https://github.com/some-user/some-paper.git
 ```
 
 ## 出力例
@@ -152,7 +150,7 @@ GPU環境では、空いているGPUを `--gpus device=N` で割り当て、`flo
 
 ## 制約
 
-- まずはCV論文リポジトリ向けに最適化しています。
+- 現時点では、CV論文リポジトリ向けに最適化しています。
 - gated dataset、private model weights、上流ライセンス制約は回避しません。
 - 論文中の主張を完全に再現できたことまでは保証しません。利用可能な再現経路とブロッカーを記録します。
 - GPU負荷が大きい論文は、ローカルマシンでは実行不能な場合があります。

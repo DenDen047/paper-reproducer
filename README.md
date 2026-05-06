@@ -4,9 +4,7 @@
   <img src="docs/logo.png" alt="paper-reproducer logo" width="720">
 </p>
 
-<p align="center">
-  <strong>Turn a computer vision paper repository into a Pixi-locked run, retry log, and audit-ready report.</strong>
-</p>
+💡 *Turn a computer vision paper repository into a Pixi-locked environment, retry log, and audit-ready report.*
 
 <p align="center">
   <a href="README.ja.md">Japanese</a> ·
@@ -39,7 +37,7 @@ Reproducing paper code is rarely blocked by one hard algorithmic problem. It is 
 - model weights, datasets, and demo commands scattered across README issues and scripts
 - failed attempts that disappear instead of becoming reusable debugging evidence
 
-`paper-reproducer` standardizes that workflow around Pixi, Docker, and a structured report trail.
+`paper-reproducer` standardizes that workflow with Pixi, Docker, and a structured audit trail, making each attempt easier to inspect, rerun, and hand off.
 
 ## What It Does
 
@@ -61,9 +59,9 @@ Prerequisites:
 - `tmux` and `flock` for batch mode
 
 ```bash
-git clone https://github.com/DenDen047/paper-reproducer.git
-cd paper-reproducer
-./bootstrap.sh --lang en https://github.com/some-user/some-paper.git
+$ git clone https://github.com/DenDen047/paper-reproducer.git
+$ cd paper-reproducer
+$ ./bootstrap.sh --lang en https://github.com/some-user/some-paper.git
 ```
 
 When Claude Code opens inside the container, run:
@@ -148,7 +146,7 @@ In GPU environments, batch mode assigns free GPUs with `--gpus device=N` and `fl
 
 ## Limitations
 
-- Optimized for computer vision paper repositories first.
+- Optimized for computer vision paper repositories for now.
 - Does not bypass gated datasets, private model weights, or upstream license restrictions.
 - Does not guarantee that a paper claim is fully reproduced; it records the available reproduction path and blockers.
 - GPU-heavy papers may still be infeasible on the local machine.

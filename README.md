@@ -1,81 +1,32 @@
 # paper-reproducer
 
-CV 論文の GitHub リポジトリを、Claude Code エージェントで全自動再現する Claude Code プラグイン。
+> `./bootstrap.sh <repo-url>` だけで、CV 論文のリポジトリを Pixi 環境構築から推論実行・レポート生成まで自動完走させる Claude Code プラグイン。
 
-## Why
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Claude Code plugin](https://img.shields.io/badge/Claude_Code-plugin-orange)](https://www.claude.com/product/claude-code)
+[![Pixi powered](https://img.shields.io/badge/Pixi-powered-yellow)](https://pixi.sh/)
 
-研究論文のコードを動かすのに最も時間がかかるのは環境構築。conda / pip / Docker / CUDA の混在を人手で解決するのは苦痛で、1リポジトリに数時間〜数日かかることもある。
+<!-- TODO: docs/demo.gif (bootstrap → /reimplement → report.html, 30 秒) を貼る -->
 
-本ツールは [denkiwakame 氏の Pixi ワークフロー](https://denkiwakame.notion.site/2ba3175c6b6a80d19141f5407c39ad4e?v=2ba3175c6b6a80a7acfe000c6c1b2117)に準拠し、あらゆる依存管理方式を Pixi に収束させることでこの問題を自動化する。
+## What you get
 
-## Install
+- URL 1 つを渡すだけで、**Pixi 環境 + 実行コマンド + 推論結果 + 入出力サンプル + report.html** までホスト側に生成
+- conda / pip / Docker / setup.py など **6 種の依存管理形式をすべて Pixi に統一** し、`pixi.lock` で完全再現性を確保
+- 失敗しても **エラー診断ログと推奨修正案つきレポート** を残す。再現失敗もログとして資産化
 
-前提ツール: **Docker**, **Claude Code**, **NVIDIA Container Toolkit**
+## Quick Start
 
-※ **NVIDIA Container Toolkit** が無くても起動するが、CV論文は大半がGPU必須なので入れておくことを推奨。
+前提ツール: **Docker**, **Claude Code**, **NVIDIA Container Toolkit** (GPU 利用時)
 
 ```bash
 git clone https://github.com/DenDen047/paper-reproducer.git
 cd paper-reproducer
-```
-
-## Quick Start
-
-```bash
 ./bootstrap.sh https://github.com/some-user/some-paper.git
 ```
 
 Claude Code が開いたらプロンプトで `/reimplement` を実行すれば、全自動再現が始まる。
 
-## Options
-
-<!-- AUTO-GENERATED: bootstrap.sh の usage() を SSOT として同期 -->
-
-| オプション | 役割 |
-|---|---|
-| `--repos <file>` | URL をファイルから読み込み (バッチモード) |
-| `--rebuild` | Docker イメージを強制再ビルド |
-| `--fresh` | 既存 clone を削除して再 clone |
-| `--lang <code>` | レポート出力言語: `ja` (デフォルト) / `en` |
-| `-h`, `--help` | ヘルプ表示 |
-
-| 環境変数 | 役割 |
-|---|---|
-| `WORKSPACE_DIR` | clone 先 (デフォルト: `~/paper-reproduce-workspaces`) |
-| `REPORT_LANG` | `--lang` と同等 (`--lang` が優先) |
-
-<!-- /AUTO-GENERATED -->
-
-```bash
-./bootstrap.sh --rebuild --lang en https://github.com/some-user/some-paper.git
-```
-
-## Batch mode
-
-複数の URL、または `--repos <file>` を渡すと並列バッチで走る。
-
-```bash
-./bootstrap.sh url1.git url2.git url3.git
-./bootstrap.sh --repos repos.txt
-```
-
-- 渡された URL の数だけ並列にコンテナを launch
-- 複数 GPU は外部プロセス未使用のものから自動選択し、`--gpus device=N` + `flock` で 1 GPU = 1 ジョブの排他を保証
-- 各ジョブは tmux ウィンドウで起動 (`Ctrl+b → n/p` で切替、`Ctrl+b → d` でデタッチ)
-
-## Output
-
-`/reimplement` の実行中・完了後にホスト側へ永続化される:
-
-| パス | 内容 |
-|---|---|
-| `$WORKSPACE_DIR/{repo}/reports/analysis.json` | Phase 1 の解析結果 |
-| `$WORKSPACE_DIR/{repo}/reports/attempts.tsv` | Experiment Loop の全試行ログ |
-| `$WORKSPACE_DIR/{repo}/reports/environment.json` | 実行マシンのスナップショット (host/OS/CPU/GPU/CUDA/Python) |
-| `$WORKSPACE_DIR/{repo}/reports/report.json` | 機械可読レポート |
-| `$WORKSPACE_DIR/{repo}/reports/report.html` | 目視確認用レポート (`REPORT_LANG` で言語切替) |
-| `$WORKSPACE_DIR/{repo}/reports/samples/` | 入出力サンプル |
-| `$WORKSPACE_DIR/{repo}-{short_sha}.tar.gz` | 状態スナップショット (成功時のみ) |
+> NVIDIA Container Toolkit が無くても起動するが、CV 論文は大半が GPU 必須なので入れておくことを推奨。
 
 ## How it works
 
@@ -106,25 +57,85 @@ flowchart TD
 
 [karpathy/autoresearch](https://github.com/karpathy/autoresearch) 着想の自律リトライループ。`pixi install` が通り推論が走るまで、エラー診断 → 修正 → 再試行を自動で繰り返す。全試行は `attempts.tsv` に記録される。
 
+## Who is this for?
+
+- **AI コンサル / 受託エンジニア**: 顧客向けの論文調査・PoC 見積もりを高速化し、調査フェーズで毎回潰れる時間を削る
+- **研究者・大学院生**: SOTA 論文の追試環境を秒で立ち上げ、本来時間を割きたい比較実験・改良に集中する
+
+## Reference
+
+### Options
+
+<!-- AUTO-GENERATED: bootstrap.sh の usage() を SSOT として同期 -->
+
+| オプション | 役割 |
+|---|---|
+| `--repos <file>` | URL をファイルから読み込み (バッチモード) |
+| `--rebuild` | Docker イメージを強制再ビルド |
+| `--fresh` | 既存 clone を削除して再 clone |
+| `--lang <code>` | レポート出力言語: `ja` (デフォルト) / `en` |
+| `-h`, `--help` | ヘルプ表示 |
+
+| 環境変数 | 役割 |
+|---|---|
+| `WORKSPACE_DIR` | clone 先 (デフォルト: `~/paper-reproduce-workspaces`) |
+| `REPORT_LANG` | `--lang` と同等 (`--lang` が優先) |
+
+<!-- /AUTO-GENERATED -->
+
+```bash
+./bootstrap.sh --rebuild --lang en https://github.com/some-user/some-paper.git
+```
+
+### Batch mode
+
+複数の URL、または `--repos <file>` を渡すと並列バッチで走る。
+
+```bash
+./bootstrap.sh url1.git url2.git url3.git
+./bootstrap.sh --repos repos.txt
+```
+
+- 渡された URL の数だけ並列にコンテナを launch
+- 複数 GPU は外部プロセス未使用のものから自動選択し、`--gpus device=N` + `flock` で 1 GPU = 1 ジョブの排他を保証
+- 各ジョブは tmux ウィンドウで起動 (`Ctrl+b → n/p` で切替、`Ctrl+b → d` でデタッチ)
+
+### Output
+
+`/reimplement` の実行中・完了後にホスト側へ永続化される:
+
+| パス | 内容 |
+|---|---|
+| `$WORKSPACE_DIR/{repo}/reports/analysis.json` | Phase 1 の解析結果 |
+| `$WORKSPACE_DIR/{repo}/reports/attempts.tsv` | Experiment Loop の全試行ログ |
+| `$WORKSPACE_DIR/{repo}/reports/environment.json` | 実行マシンのスナップショット (host/OS/CPU/GPU/CUDA/Python) |
+| `$WORKSPACE_DIR/{repo}/reports/report.json` | 機械可読レポート |
+| `$WORKSPACE_DIR/{repo}/reports/report.html` | 目視確認用レポート (`REPORT_LANG` で言語切替) |
+| `$WORKSPACE_DIR/{repo}/reports/samples/` | 入出力サンプル |
+| `$WORKSPACE_DIR/{repo}-{short_sha}.tar.gz` | 状態スナップショット (成功時のみ) |
+
 ## Design decisions
 
 - **Pixi**: conda-forge + uv を統合し、CUDA / gcc / CMake 等の非 Python 依存も宣言的に管理。`pixi.lock` で完全再現性を担保
 - **Claude Code (Docker sandboxed)**: `ghcr.io/prefix-dev/pixi` ベースのコンテナ内で全自動実行
 - **denkiwakame ワークフロー準拠**: defaults チャンネル除去、CUDA 統一、gcc を pixi 管理下に、Divide-and-Conquer、no-build-isolation 等
 
+研究論文のコードを動かすのに最も時間がかかるのは環境構築。conda / pip / Docker / CUDA の混在を人手で解決するのは苦痛で、1 リポジトリに数時間〜数日かかることもある。本ツールは [denkiwakame 氏の Pixi ワークフロー](https://denkiwakame.notion.site/2ba3175c6b6a80d19141f5407c39ad4e?v=2ba3175c6b6a80a7acfe000c6c1b2117) に準拠し、あらゆる依存管理方式を Pixi に収束させることでこの問題を自動化する。
+
 ## Development
 
 - `main` ブランチをベースに開発。追加機能は `feature/<name>` ブランチを切って実装し、マージする
 - コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) に従う
+- バージョニングは [Semantic Versioning 2.0.0](https://semver.org/lang/ja/) / 変更履歴は [CHANGELOG.md](./CHANGELOG.md) を参照
 
 ## License
 
-本リポジトリは **Apache License 2.0** の下で公開されている (`LICENSE` 参照)。
+本リポジトリは **Apache License 2.0** の下で公開されている ([LICENSE](./LICENSE) 参照)。
 
-ただし以下の点に注意:
+注意:
 
 - **再現対象のリポジトリ・論文コードは、それぞれの元ライセンスに従う**。`paper-reproducer` は他者のコードを取得・実行するツールであり、対象コードを Apache 2.0 で再配布するものではない。
-- **Pro 機能 (Web UI / 評価ダッシュボード / 監査パック生成 等) は別途販売予定**であり、別リポジトリで独立して開発・配布される予定。
+- 商用機能の拡張 (Web UI / 評価ダッシュボード / 監査パック生成 等) は別リポジトリでの開発を検討中。
 
 ## References
 

@@ -152,6 +152,61 @@ cuda = "11.7"
 | DL が 120s 超 / timeout | ミラー遅延・切断 | `--resume-retries 5 --timeout 120` でリトライ。失敗時はミラー切替 (HF: `HF_ENDPOINT=https://hf-mirror.com`) |
 | `nvidia-cudnn-*` DL が 500s 超 | 巨大 wheel + 単一ミラー | conda-forge `cudnn` に切替 |
 
+## 条件付き Known issues
+
+特定のリポジトリ条件にマッチしたときだけ発火するルール。**バージョン非依存にグローバル化しない** (将来 wheel が改善されると無害化されるため)。
+
+### open3d 0.19+ wheel resolve fail (manylinux_2_31)
+
+**条件 (両方 true)**:
+- `analysis.json.dep_files_found.requirements_txt` / `pyproject.toml` のいずれかに `open3d>=0.19` または `open3d==0.19.*` が含まれる
+- ホスト glibc baseline が 2.31 未満 (`ldd --version` の最初の行で確認)
+
+**症状**:
+```
+open3d==0.19.0 has no wheels with a matching platform tag
+(e.g., manylinux_2_28_x86_64)
+```
+
+**原因**: 0.19 wheels は `manylinux_2_31` タグ。conda-forge default の libc baseline は 2.17 で、host が 2.35 でも resolver は 2.17 として扱う。
+
+**修正** (Phase 2 attempt 1 から適用):
+
+```toml
+[system-requirements]
+libc = { family = "glibc", version = "2.31" }
+```
+
+将来 open3d が manylinux_2_28 wheel を出した時点で本ルールは無害化される。
+
+### submodule editable install のサイレントスキップ
+
+**条件 (両方 true)**:
+- `analysis.json.submodules[].has_setup_py == true`
+- 当該 submodule の `setup.py` に `packages=[...]` 宣言がない (`grep -n 'packages\s*=' submodule/setup.py` で 0 件)
+
+**症状**:
+- `pip install -e submodule/` は exit 0
+- `import {module}` で `ModuleNotFoundError`
+
+**原因**: editable install では finder の MAPPING が `__init__.py` のないフォルダを指す。`packages=` が無いと `.so` の探索パスが register されない。
+
+**修正**: `--no-build-isolation` の **non-editable install** を使う:
+
+```toml
+[pypi-dependencies]
+simple-knn = { path = "submodules/simple-knn", editable = false }
+
+[pypi-options]
+no-build-isolation = ["simple-knn"]
+```
+
+`.so` が `site-packages/<module>/_C...` に正しくコピーされる。
+
+**注意**: import 時は torch を最初に読むこと (`libc10.so` の dlopen に必要)。`__init__.py` の 1 行目に `import torch` を入れる patch が要る場合あり。
+
+将来 submodule の setup.py に `packages=` が入れば本ルールは自動的に発火しなくなる。
+
 ## 環境変数設定
 
 CUDA 拡張ビルド用に activation script で設定:

@@ -186,6 +186,7 @@ pixi.toml / コマンド引数 / env var の変更で直る。
 | private repo / 認証必要 | 手動介入指示をレポート |
 | 同一 Tier 2-config が 10 回失敗 | Type 変更を試行（例: A→B） |
 | 原因不明のセグフォ | エラーレポート出力 |
+| **GDrive レート制限** ("but Gdown can't" + "domain administrator" 文言) | 24h cooldown 必要。`next_actions` に「{n} 時間後に gdown {file_id} -O {path} を再実行」を追加。**status は `data_acquisition_table[i].required_for_claims` で判定** (P2-B): 空 (= optional) → status=success 維持 / 非空 (= 必須) → `report.json.errors` に `blocked_external_rate_limit` を追加し status=partial 候補 |
 
 ## 判定フロー
 
@@ -212,6 +213,32 @@ pixi.toml / コマンド引数 / env var の変更で直る。
   ├─ SegmentationFault / 認証 / 非公開データセット → Tier 3
   └─ OOM ladder / Arch Upgrade Ladder Step 4 まで全滅 → Tier 3 昇格
 ```
+
+## データ取得失敗の分類 (P2-B)
+
+`commands/reimplement.md` Phase 3 Step 1 (`data_acquisition_table` ベースの dataset DL) で発生する失敗を、`required_for_claims` の有無と組み合わせて分類する。
+
+| 失敗種別 | 判定文字列 | tier / 扱い |
+|---|---|---|
+| HTTP 4xx / 5xx (transient) | `curl: (22)` / `404 Not Found` | tier1 (3 回まで自動 retry、URL の変動は README 代替リンクで補正) |
+| GDrive レート制限 | `"but Gdown can't"` + `"domain administrator"` / `"too many users"` | tier3 (24h cooldown) |
+| HF gated repo | `401 Unauthorized` / `Repository not found` 系 | tier3 (`gated` カテゴリ、`next_actions` に手動手順) |
+| 認証必要 | `403` / login redirect | tier3 |
+
+**status 維持判定** (P2-B 核心):
+
+```python
+# data_acquisition_table[i].required_for_claims が空 (= optional) なら status=success 維持
+# 非空 (= 必須 dataset) なら blocked_external_rate_limit を errors[] に追加し partial 候補
+required = entry.get("required_for_claims", [])
+if not required:
+    pass  # success 維持。reports/_blocked_optional.json に記録のみ
+else:
+    errors.append(f"blocked_external_rate_limit: {entry['name']} (required for {required})")
+    # report.json.status の最終判定で partial になる候補
+```
+
+`experiment-loop` 内ではこの判定だけ行い、status の最終確定は Phase 4 Step 2 の集約ルールに委ねる。
 
 ## OOM ladder（Tier 2-hardware）
 

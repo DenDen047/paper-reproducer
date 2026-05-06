@@ -177,6 +177,10 @@ ldd --version | head -1
       "claim_source": "string"
     }
   ],
+  "claims_extraction": {
+    "status": "extracted|no_quantitative_claims|paper_unavailable|extraction_failed",
+    "evidence": "string|null"
+  },
   "pixi_strategy": {
     "init_method": "pixi init --import|pixi init|pixi init --pyproject",
     "channels": ["string"],

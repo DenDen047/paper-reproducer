@@ -216,26 +216,39 @@ pixi.toml / コマンド引数 / env var の変更で直る。
 
 ## データ取得失敗の分類 (P2-B)
 
-`skills/reimplement/SKILL.md` Phase 3 Step 1 (`data_acquisition_table` ベースの dataset DL) で発生する失敗を、`required_for_claims` の有無と組み合わせて分類する。
+`skills/reimplement/SKILL.md` Phase 3 Step 1 / Phase 3.5 (`data_acquisition_table` ベースの dataset DL) で発生する失敗を、`required_for_claims` の有無と組み合わせて分類する。
 
-| 失敗種別 | 判定文字列 | tier / 扱い |
+**核心原則 (v0.1.1 regression 教訓、「諦めない」)**: tier3 への昇格は **実際に試行してから**。`category=assisted` / `gated` の draft 値だけで「試さずに tier3 / partial」と扱うのは禁止。第一試行で 4xx / rate-limited が確定して初めて昇格する。
+
+| 失敗種別 | 判定文字列 (試行後に確認) | tier / 扱い |
 |---|---|---|
-| HTTP 4xx / 5xx (transient) | `curl: (22)` / `404 Not Found` | tier1 (3 回まで自動 retry、URL の変動は README 代替リンクで補正) |
-| GDrive レート制限 | `"but Gdown can't"` + `"domain administrator"` / `"too many users"` | tier3 (24h cooldown) |
-| HF gated repo | `401 Unauthorized` / `Repository not found` 系 | tier3 (`gated` カテゴリ、`next_actions` に手動手順) |
-| 認証必要 | `403` / login redirect | tier3 |
+| HTTP 4xx / 5xx (transient) | `curl: (22)` / `404 Not Found` | tier1 (3 回まで自動 retry、URL の変動は README 代替リンク / GitHub release / mirror で補正) |
+| Direct DL URL 抽出失敗 (landing page しか取れない) | gdown / curl が exit≠0 で「URL not parseable」 | tier1 (= まず gdown --folder で folder ID を試す、README / page を grep して direct URL を抽出して再試行) |
+| GDrive レート制限 | `"but Gdown can't"` + `"domain administrator"` / `"too many users"` | tier3 (24h cooldown 必要)。**ただし `required_for_claims` 非空なら ScheduleWakeup で N 時間後に再試行を schedule** |
+| HF gated repo | `401 Unauthorized` / `Repository not found` 系 | tier3 (`gated` カテゴリ、`next_actions` に手動認証手順)。試行は HfApi.repo_info で 1 回必須 |
+| 認証必要 | `403` / login redirect | tier3 (`gated`)、試行 1 回必須 |
+
+**MUST NOT** (v0.1.1 regression 教訓):
+- `data_acquisition_table[i].category` の draft 値だけを見て tier3 と判定する (= 試行ゼロで諦める)
+- 「landing page で manual と書いてある」を理由に試行をスキップする
+- README に preprocess: external_tool と書いてあるからといって fetch 自体を試さない (取得と前処理は別ステップ)
 
 **status 維持判定** (P2-B 核心):
 
 ```python
-# data_acquisition_table[i].required_for_claims が空 (= optional) なら status=success 維持
-# 非空 (= 必須 dataset) なら blocked_external_rate_limit を errors[] に追加し partial 候補
+# 第一試行で blocked / gated 確定後の判定
 required = entry.get("required_for_claims", [])
 if not required:
     pass  # success 維持。reports/_blocked_optional.json に記録のみ
 else:
-    errors.append(f"blocked_external_rate_limit: {entry['name']} (required for {required})")
-    # report.json.status の最終判定で partial になる候補
+    errors.append({
+        "id": "blocked_external_rate_limit",
+        "phase": "phase3 or phase3.5",
+        "summary": f"{entry['name']} (required for {required}); first attempt failed: {evidence}",
+        "tier": "tier3",
+    })
+    # report.json.status の最終判定で partial 候補
+    # ただし claim 単位で他の dataset で eval できる場合は status は維持
 ```
 
 `experiment-loop` 内ではこの判定だけ行い、status の最終確定は Phase 4 Step 2 の集約ルールに委ねる。

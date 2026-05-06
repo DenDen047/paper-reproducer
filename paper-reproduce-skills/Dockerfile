@@ -50,7 +50,13 @@ USER claude
 # 非 root 実行下では auto-update が失敗するため。
 # https://code.claude.com/docs/en/setup
 RUN curl -fsSL https://claude.ai/install.sh | bash
-ENV PATH=/home/claude/.local/bin:$PATH
+
+# bootstrap.sh が host の ~/.claude/settings.json を mount するため、
+# host 側の PreToolUse:Bash hook (rtk hook claude) が container 内にも見える。
+# rtk が無いと全 Bash コマンドの直前で hook が失敗するので container にも入れる。
+RUN pixi global install rtk-cli
+
+ENV PATH=/home/claude/.pixi/bin:/home/claude/.local/bin:$PATH
 
 WORKDIR /workspace
 

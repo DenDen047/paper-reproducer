@@ -257,13 +257,35 @@ pixi run python /paper-reproduce-skills/scripts/probe_dataset.py \
 
 probe スクリプトは `gdown` / `huggingface_hub` 未インストールでも exit 0 を返し `reachable=false` の JSON を書く (再現フローを止めない)。
 
+### probe する URL の選び方 (核心、v0.1.1 regression 教訓)
+
+**README に書かれた URL が landing page (= ハブページ) の場合、そのまま probe して終わってはいけない**。実態は背後の direct DL URL なので:
+
+| README の URL の形 | 必ず行うべき追加 probe |
+|---|---|
+| `https://*.github.io/...` (project page) | リンクを辿り GDrive folder ID / GitHub release / 直 HTTP archive を抽出して再 probe |
+| `https://drive.google.com/drive/folders/...` | そのまま `gdown_dry_run` で probe (= auto-fetch 確定の最強シグナル) |
+| `https://drive.google.com/file/d/...` | 同上 |
+| `https://roboimagedata*.compute.dtu.dk/?page_id=...` (DTU 系) | "Points.zip" / "SampleSet.zip" の **直 HTTP URL** を README / page 内 grep で見つけて再 probe |
+| `https://www.tanksandtemples.org/download/` | 各シーンの GT は web form (= `assisted`)、ただし trainset の preprocessed 版が GitHub release 等にあれば auto-fetch 候補 |
+| `https://huggingface.co/...` | `hf_api` で repo_info、files_metadata から実体サイズを取得 |
+
+**default bias は `auto-fetch` 寄り**: 確証なく `assisted` / `blocked` に分類しない。「landing page で manual と書いてあった」「click-through が必要そう」等の表層シグナルは確証ではない。実際に試して 4xx / rate-limited / 401 が返ったときに初めて降格する。
+
+**MUST NOT** (v0.1.1 regression の核心):
+- README の landing page URL だけを probe して `assisted` 判定する
+- "manual click-through" / "follows links to" 等の prose を理由に `assisted` 化する (= 行動規制になる)
+- `preprocess: external_tool` を理由に `assisted` 化する (preprocess は別フィールドであり、取得性とは独立)
+
 **probe 結果による降格ルール**:
 
 | probe 結果 | 上書き後 category |
 |---|---|
+| direct DL URL に到達できず landing page 止まり | (この時点では判定保留)。降格してよいのは下記の試行後のみ |
 | `http_status` 4xx / `gdown rate-limited` / `hf gated` | `blocked` (非永続。24h 後に再試行する余地あり) |
 | `hf gated/auth` で 401 | `gated` (ユーザー対話で解決可能) |
 | `reachable=true` + `content_length` 取得 | `auto-fetch` 確定 |
+| 直接 DL URL を抽出できず、かつ landing page も probe 200 のみ | **`assisted` (= 第一試行の対象から外さない、Phase 3 で gdown 等を強制試行する)** |
 
 ### dataset entry スキーマ
 

@@ -12,7 +12,6 @@
   <a href="README.ja.md">Japanese</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="#example-output">Example Output</a> ·
-  <a href="#for-ai-consulting-teams">For AI Consulting Teams</a> ·
   <a href="#commercial-boundary">Commercial Boundary</a>
 </p>
 
@@ -90,20 +89,6 @@ Each run leaves an audit trail under the reproduced repository:
 | `{repo}-{short_sha}.tar.gz` | Success snapshot archive, written next to the workspace |
 
 The important output is not just "it ran." The important output is a reusable record of what was tried, what worked, what failed, and what should happen next.
-
-## For AI Consulting Teams
-
-`paper-reproducer` is designed for teams that evaluate papers before a client PoC, technical proposal, or internal R&D sprint.
-
-Use it to:
-
-- reduce the time spent on first-pass paper repo setup
-- turn failed reproductions into structured evidence instead of lost debugging time
-- standardize Pixi-based environments across consultants and projects
-- produce client-readable reports with commands, environment snapshots, samples, and next actions
-- batch-check multiple candidate papers before choosing what to implement
-
-Commercial support and private extensions are planned around the operational layer: audit packs, safer execution policies, CI handoff, dashboards, and team enablement.
 
 ## How It Works
 

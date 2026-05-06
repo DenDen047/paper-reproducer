@@ -117,6 +117,15 @@ flowchart TD
 - `main` ブランチをベースに開発。追加機能は `feature/<name>` ブランチを切って実装し、マージする
 - コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) に従う
 
+## License
+
+本リポジトリは **Apache License 2.0** の下で公開されている (`LICENSE` 参照)。
+
+ただし以下の点に注意:
+
+- **再現対象のリポジトリ・論文コードは、それぞれの元ライセンスに従う**。`paper-reproducer` は他者のコードを取得・実行するツールであり、対象コードを Apache 2.0 で再配布するものではない。
+- **Pro 機能 (Web UI / 評価ダッシュボード / 監査パック生成 等) は別途販売予定**であり、別リポジトリで独立して開発・配布される予定。
+
 ## References
 
 - [denkiwakame - Pixi Advent Calendar 2024](https://denkiwakame.notion.site/2ba3175c6b6a80d19141f5407c39ad4e?v=2ba3175c6b6a80a7acfe000c6c1b2117) (Day 5, 12, 17, 19)

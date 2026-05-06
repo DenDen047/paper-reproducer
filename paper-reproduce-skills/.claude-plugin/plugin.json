@@ -1,12 +1,12 @@
 {
   "name": "paper-reproduce",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "CV論文のGitHubリポジトリを全自動再現する Claude Code プラグイン。/reimplement で依存解析→Pixi環境構築→推論実行→レポート生成まで自動実行。",
   "author": {
     "name": "DenDen047",
     "url": "https://github.com/DenDen047"
   },
   "repository": "https://github.com/DenDen047/paper-reproducer",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": ["pixi", "cuda", "paper-reproduction", "cv", "environment-setup"]
 }

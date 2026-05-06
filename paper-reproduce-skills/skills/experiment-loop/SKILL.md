@@ -288,6 +288,73 @@ while not succeeded:
     #    失敗 → Tier 分類 → 修正 → git reset → continue
 ```
 
+## Long-running training の fail-fast (Phase 3.5 用、P3-C)
+
+30k iter の training を最後まで回した後で「実は loss が iter 5000 から NaN だった」と気づくのは時間損失が大きい。fail-fast は **「再現を諦めて停止する」ではなく、「無駄な計算を切って即次 attempt を起動する」** ためにある。本システムのコンセプト「時間制限なし・全自動・claim 達成まで」を保ちつつ、明らかに失敗確定の training を回し続けるのを避ける。
+
+watcher の `abort_signal_file` の中身 (`tier1` / `tier2-config` / `tier2-hardware`) を `attempts.tsv` の error_tier に直接転記し、experiment-loop はそれに従って次 attempt の action を決める。**training を SIGTERM するのは watcher が指示したときだけ** (= 自然完走したら eval / claim verify に進む)。
+
+### 起動
+
+`scripts/training_watcher.py` を background で起動し、training プロセスの実 PID と期待 artifact パスを渡す:
+
+```bash
+TRAIN_LOG=reports/_train.log
+pixi run python train.py ... > "$TRAIN_LOG" 2>&1 &
+TRAIN_PID=$!
+echo "$TRAIN_PID" > /tmp/_train.pid
+
+pixi run python /paper-reproduce-skills/scripts/training_watcher.py \
+  --pid "$TRAIN_PID" \
+  --log "$TRAIN_LOG" \
+  --metrics reports/training_metrics.json \
+  --checkpoint-dir output/exp/point_cloud \
+  --expected-first-dump-iter 7500 \
+  --abort-signal-file /tmp/_train.abort &
+
+# training が終わるまで待つ。watcher が abort signal を立てたら kill。
+while kill -0 "$TRAIN_PID" 2>/dev/null; do
+    if [ -f /tmp/_train.abort ]; then
+        kill -SIGTERM "$TRAIN_PID"; sleep 5; kill -SIGKILL "$TRAIN_PID" 2>/dev/null
+        break
+    fi
+    sleep 30
+done
+```
+
+### 検知ルール (training 開始から 5 分経過後、30 秒間隔で評価)
+
+| 検知 | tier 分類 | 次 attempt の action |
+|---|---|---|
+| loss が NaN/Inf に **3 回連続** | tier2-config | lr 半減 + amp 切替 + gradient clip (`add_grad_clip` / `halve_lr`) |
+| OOM (RC=137 / `out of memory`) 1 回 | tier2-hardware | gradient checkpointing / batch size 半減 (`enable_grad_ckpt` / `halve_batch`) |
+| 期待 artifact 未生成 (`last_iter > expected_first_dump_iter` かつ `checkpoint-dir` に 1 個も chkpnt なし) | tier1 | 出力パス設定修正 (`fix_output_path`) |
+| it/s が直近 5 分平均から 50% 以下が 10 分継続 | warning | 停止せず `training_metrics.json.warnings[]` に記録 |
+| eta が想定時刻を超過 | warning | 停止しない (budget 上限なし) |
+
+### Phase 3.5 完走後の eval 失敗との関係
+
+- **Phase 3.5 完走** → P0-C の `claims_verification` で status を判定。`missed` が出ても再 training しない (人間判断に委ねる)
+- **training 途中の機械的検知** (NaN, OOM, artifact 不生成) → 本セクションで即修正
+
+watcher が abort_signal を立てた場合のみ training を SIGTERM、tier 分類を `attempts.tsv` に記録、`experiment-loop` の next attempt を発火する。
+
+### Resume 対応
+
+OOM / preemption で training が中断し、checkpoint があれば `analysis.json.training_recovery.resume_arg` を付けて **1 回だけ自動再開**する (Tier 1 の特殊形)。再開でも失敗したら通常の Tier 分類へ:
+
+```bash
+# attempts.tsv の前行が training の OOM/crash で、checkpoint dir に chkpnt が存在
+LATEST_CKPT=$(ls output/exp/chkpnt*.pth 2>/dev/null | tail -1)
+if [ -n "$LATEST_CKPT" ] && [ "$RESUME_ATTEMPTED" != "1" ]; then
+    RESUME_ARG=$(jq -r '.training_recovery.resume_arg // empty' reports/analysis.json | sed "s|<exp>|$EXP_NAME|g")
+    pixi run python train.py ... $RESUME_ARG  # 1 回だけ
+    RESUME_ATTEMPTED=1
+fi
+```
+
+`training_recovery` が `null` の場合は resume せず通常の Tier 分類へ。
+
 ## GitHub Issue / PR 即時検索（失敗時のみ）
 
 `tier2-config` / `tier2-hardware` / `tier3` の失敗が出た瞬間に、同リポジトリの既存 Issue / PR を検索して `attempts.tsv` の `error_summary` 列に `[Issue #N]` プレフィックスを付ける。`tier0` / `tier1` は数秒で直る軽症なのでスキップ (rate-limit 配慮)。

@@ -144,6 +144,39 @@ ldd --version | head -1
     "method": "wget|gdown|huggingface|script",
     "details": "string"
   },
+  "data_acquisition_table": [
+    {
+      "name": "string",
+      "url": "string|null",
+      "size_gb_estimated": "number|null",
+      "size_gb_probed": "number|null",
+      "probe": {
+        "method": "http_head|gdown_dry_run|hf_api|none",
+        "reachable": "boolean",
+        "checked_at": "string",
+        "evidence": "string"
+      } | null,
+      "category": "bundled|auto-fetch|assisted|gated|blocked",
+      "required_for_claims": ["string"],
+      "preprocess": "none|repo_script|external_tool",
+      "disk_after_extract_gb": "number|null"
+    }
+  ],
+  "reproduction_mode": "inference_only|train_required|train_optional",
+  "training_recovery": {
+    "checkpoint_interval_iters": "number|null",
+    "checkpoint_dir_pattern": "string|null",
+    "resume_arg": "string|null"
+  } | null,
+  "paper_claims": [
+    {
+      "id": "string",
+      "metric_name": "string",
+      "paper_target": "number",
+      "tolerance": "string",
+      "claim_source": "string"
+    }
+  ],
   "pixi_strategy": {
     "init_method": "pixi init --import|pixi init|pixi init --pyproject",
     "channels": ["string"],
@@ -198,7 +231,11 @@ while not succeeded:
 
 **`experiment-loop` スキル参照。**
 
-### Step 1: モデルダウンロード
+### Step 1: モデル・データダウンロード (統合)
+
+モデル重み (`analysis.json.model_download`) と dataset (`analysis.json.data_acquisition_table[]`) を **一緒に** 取得する。両者は再現に必要な前提条件として等価。
+
+#### 1.1 モデル重み
 
 `analysis.json.model_download` に基づく:
 
@@ -211,9 +248,38 @@ while not succeeded:
 
 **gdown --folder の二重ネスト問題**: `gdown --folder URL -O /workspace/weights/` → `/workspace/weights/weights/` になる。一時ディレクトリに DL → 中身を目的パスに移動。
 
-**ダウンロード失敗**:
-- URL 切れ → README 代替リンク、HuggingFace Hub 検索
-- 認証必要 → Tier 3
+#### 1.2 dataset (data_acquisition_table)
+
+各 entry を `category` に従って処理する。**`auto-fetch` は probe 済 reachable なので無条件で取得する** (= ユーザー対話を発生させない)。
+
+| category | 挙動 |
+|---|---|
+| `bundled` | スキップ (既にリポ内) |
+| `auto-fetch` | 即取得。probe `method` が `http_head` なら curl、`gdown_dry_run` なら gdown、`hf_api` なら huggingface_hub。失敗は `experiment-loop` の Tier 1 (HTTP transient) または P2-B (GDrive レート制限) に分類 |
+| `assisted` | 取得手順を `next_actions` に明記したうえで Phase 3 を継続。`required_for_claims` が非空なら `report.json.status` を `partial` に下げる候補 |
+| `gated` | 認証が必要 → `next_actions` に手順を入れて続行。`required_for_claims` が非空なら status=partial 候補 |
+| `blocked` | 自動取得不可。`required_for_claims` が空なら無視、非空なら `errors` に「必須 dataset blocked」を追加し、P2-B のフローへ |
+
+#### 1.3 ディスク容量チェック (download 開始前)
+
+`auto-fetch` 全件の `disk_after_extract_gb` 合計が利用可能容量の 70% を超えるなら警告:
+
+```bash
+AVAIL_GB=$(df --output=avail . | tail -1 | awk '{print $1/1024/1024}')
+TOTAL_NEEDED=$(jq -r '[.data_acquisition_table[] | select(.category=="auto-fetch") | .disk_after_extract_gb] | add // 0' \
+                 reports/analysis.json)
+if [ "$(echo "$TOTAL_NEEDED > $AVAIL_GB * 0.7" | bc -l)" = "1" ]; then
+    echo "WARN: dataset total ${TOTAL_NEEDED} GB > 70% of available ${AVAIL_GB} GB"
+    # 必須でない dataset (required_for_claims が空) を後回し / 容量不足を attempts.tsv に記録
+fi
+```
+
+容量不足で必須 dataset が取れない場合は `feasibility.status=infeasible` に降格させる (Phase 1 で見落とした場合の救済)。
+
+**ダウンロード失敗の分類** (詳細は `experiment-loop` SKILL.md):
+- URL 切れ (4xx) → README 代替リンク、HuggingFace Hub 検索 (Tier 1)
+- GDrive レート制限 ("domain administrator" 文言) → P2-B (Tier 3 = 24h cooldown、`required_for_claims` で status 維持判定)
+- 認証必要 → `gated` 扱い、`next_actions` に手動手順
 - 容量過大 → 軽量版があれば代替
 
 ### Step 2: Headless GUI 対策
@@ -271,6 +337,168 @@ while not inference_succeeded:
        Tier 2-hardware: OOM ladder（Step 5 CPU fallback まで必ず）→ retry
        Tier 3: レポート記載 → Phase 4（status 判定ルール参照。推論が 1 件も成功していなければ failed）
   8. 失敗時: git reset --hard HEAD~1
+```
+
+---
+
+## Phase 3.5: Full Training (条件付き)
+
+**目的**: smoke 200 iter は pipeline の健全性チェックでしかない。論文 Table N の数値を再現するには full training が要る。本システムは「時間制限なし・全自動・claim 達成まで」がコンセプトなので、smoke で打ち切らず必要なら 30k+ iter を回す。
+
+### 3.5.1 起動判定 (2 条件 AND)
+
+```
+- analysis.json.reproduction_mode == "train_required"
+- analysis.json.paper_claims[] が非空
+```
+
+両方 yes → smoke の checkpoint を捨てて full training を起動。両方 no (= `inference_only` / `train_optional`、または paper_claims 空) → smoke が最終結果として Phase 4 へ。
+
+**所要時間 / GPU 余力 / disk 余力で skip しない**: budget なしで実行する。`autonomous-loop` 内では数時間の training を許容する。所要時間の見積もりは smoke の `iter / s` から `30000 / it_per_sec` で出せる。
+
+### 3.5.2 Training command の構築
+
+`analysis.json.demo_commands` の training 系コマンドをベースに、`--iterations` / `--max_steps` / `--epochs` を full 値に上書き。default 値が論文と一致しているなら無指定でよい。
+
+```bash
+# 例: gaussian-splatting 系
+pixi run python train.py --source_path "$DATA_PATH" --model_path "$OUT" --iterations 30000
+```
+
+### 3.5.3 fail-fast watcher の起動 (P3-C)
+
+training 起動時に `scripts/training_watcher.py` を background で立ち上げ、以下を 30 秒間隔で監視:
+
+| 検知 | アクション |
+|---|---|
+| loss が NaN/Inf に **3 回連続** | 即 abort、Tier 2-config (lr / amp / gradient clip) で次 attempt |
+| OOM 1 回 | gradient checkpointing / batch size 半減 で Tier 2-hardware として次 attempt |
+| 期待 artifact 未生成 (last_iter > expected_first_dump_iter かつ checkpoint dir に 1 個も chkpnt がない) | 出力パス設定ミスを Tier 1 で次 attempt |
+| it/s が直近 5 分平均から 50% 以下に低下 が 10 分継続 | 警告のみ。継続するが `reports/training_metrics.json.warnings[]` に記録 |
+
+watcher は **training プロセスを停止しない**かわりに、上記検知で `experiment-loop` の次 attempt をトリガーする (= 計算は無駄にしない)。watcher 自身は P3-A2 の「実 PID 監視」パターンで実装する。詳細は `experiment-loop` SKILL.md。
+
+### 3.5.4 training_metrics.json の生成
+
+full training 中は 30 秒間隔で `nvidia-smi` をサンプリングし、`reports/training_metrics.json` に保存する:
+
+```json
+{
+  "wall_clock_min": 36.4,
+  "iter_per_sec_mean": 13.7,
+  "peak_vram_mb": 41200,
+  "mean_gpu_util_pct": 87,
+  "peak_disk_used_gb": 28.3,
+  "command": "python train.py --iterations 30000 --source_path ...",
+  "git_commit": "abc1234",
+  "checkpoint_interval": 7500,
+  "warnings": [],
+  "samples": [
+    {"t": "2026-05-06T13:00:30Z", "vram_mb": 38000, "gpu_util_pct": 91, "iter": 100}
+  ]
+}
+```
+
+これは後続再現での所要時間校正、および P3-C fail-fast watcher の比較ベースとして使う。後段 (Phase 4) では報告しない (内部メトリクス)。
+
+### 3.5.5 Resume 対応
+
+OOM / preemption / 電源断で training が中断したら、`analysis.json.training_recovery.resume_arg` を付けて **1 回だけ自動再開**する (Tier 1 retry の特殊形)。再開でも失敗したら通常の Tier 分類へ。
+
+```bash
+# 例
+pixi run python train.py ... --start_checkpoint output/exp/chkpnt7500.pth
+```
+
+`training_recovery` が `null` の場合は resume せずそのまま Tier 分類へ。
+
+### 3.5.6 Eval 実行 (paper_claims 突合の前提)
+
+full training 完了後、`analysis.json.demo_commands` から eval コマンドを抽出して実行し、出力を `reports/eval/` に保存する:
+
+```bash
+mkdir -p reports/eval
+pixi run python {eval_command} 2>&1 | tee reports/eval/run.log
+# repo-specific な metric ファイルが reports/eval/{metric}.json / .txt に出る想定
+```
+
+Eval が crash したら `experiment-loop` の Tier 分類へ (典型: 入力パス指定誤り = Tier 2-config)。eval 出力が 1 つも無いまま完走したら `claims_verification[].status="not_evaluated"` で Phase 4 へ進む。
+
+### 3.5.7 paper-claim-audit の自動呼び出し (P0-C)
+
+eval 完了後、`paper-claim-audit` skill を **自動呼び出し** して論文 claim と eval 出力を機械突合する。
+
+```
+Skill({
+  skill: "paper-claim-audit",
+  args: "
+    paper_path: <paper.pdf or arxiv_id from analysis.json.overview.paper_url>
+    eval_outputs: reports/eval/
+    target_table: Table 1   # README から推定 / paper_claims[].claim_source の最頻値
+    output: reports/_claims.json
+  "
+})
+```
+
+audit 結果を `report.json.claims_verification[]` に転記する:
+
+```bash
+jq -s '.[0] + {claims_verification: (.[1].results // [])}' \
+   reports/report.json reports/_claims.json > reports/report.json.tmp
+mv reports/report.json.tmp reports/report.json
+rm reports/_claims.json  # 中間ファイルは Step 1 削除対象
+```
+
+**claims_verification[] のスキーマ**:
+
+```json
+{
+  "metric_name": "Chamfer Distance (DTU mean)",
+  "paper_target": 0.40,
+  "tolerance": "rel±10%",
+  "observed": 0.375,
+  "delta_rel_pct": -6.25,
+  "status": "matched|within_tolerance|missed|not_evaluated",
+  "claim_source": "paper Table 1, row=DTU avg",
+  "evidence_path": "reports/eval/dtu_chamfer.json"
+}
+```
+
+**status enum**:
+
+| 値 | 条件 |
+|---|---|
+| `matched` | observed が `paper_target ± tolerance` に収まる (= 再現成功) |
+| `within_tolerance` | paper_target を上回る/下回るが tolerance 内 (= 再現成功・matched と同等扱いだが超過方向を区別したいときに使う) |
+| `missed` | tolerance を超えて外れた (= pipeline は動いたが再現失敗) |
+| `not_evaluated` | eval script が走らなかった、または該当 metric が出力されなかった |
+
+**tolerance のデフォルト** (LLM が metric 名から推論、未知なら ±10% 相対):
+
+| metric 系 | tolerance |
+|---|---|
+| Chamfer / RMSE / 距離系 | ±10% 相対 |
+| PSNR | ±0.3 absolute |
+| SSIM | ±0.01 absolute |
+| LPIPS | ±10% 相対 |
+| mAP / Accuracy / F1 | ±2pt 絶対 |
+| FID / KID | ±5% 相対 |
+
+これを Phase 4 Step 2 の `report.json.status` 集約に組み込む (該当箇所の status 判定ルールを参照)。`report.html` / `i18n.json` の Claims Verification セクションがバッジ色で `matched` 緑 / `within_tolerance` 緑 / `missed` 赤 / `not_evaluated` グレーを表示する。
+
+### 3.5.8 ScheduleWakeup の使い方 (P3-B との組み合わせ)
+
+full training は数時間かかることがあるため `ScheduleWakeup` で待つ。prompt に **「もし既に完了していたら status だけ報告して終了」** を明記して、ユーザーが続けて指示を入れた場合の race ahead を防ぐ:
+
+```
+ScheduleWakeup({
+  delaySeconds: 1200,
+  reason: "checking 30k iter training progress",
+  prompt: "Check whether full training in /reimplement Phase 3.5 finished.
+           **If already done in a prior turn, just report current state and exit — do NOT re-run.**
+           Otherwise: read reports/training_metrics.json.samples[-1].iter, compare against target,
+           re-schedule if not done."
+})
 ```
 
 ---
@@ -576,6 +804,18 @@ fi
       "matched_query": "string"
     }
   ],
+  "claims_verification": [
+    {
+      "metric_name": "string",
+      "paper_target": "number",
+      "tolerance": "string",
+      "observed": "number|null",
+      "delta_rel_pct": "number|null",
+      "status": "matched|within_tolerance|missed|not_evaluated",
+      "claim_source": "string",
+      "evidence_path": "string|null"
+    }
+  ],
   "archive_path": "string|null",
   "plugin_version": "1.0.0"
 }
@@ -590,6 +830,7 @@ fi
 - `next_actions` → Step 1.7 の結果をそのまま。`report.html` とターミナル出力はここから読む
 - `failure_headline` / `failure_recoverability` → Step 1.7.5 の結果。`success` 時は両方 `null`
 - `related_issues` → Step 1.8 の `_gh_aggregate.json.results[]` 上位 10 件をそのまま転記。`success` 時 / Step 1.8 スキップ時 / マッチ 0 件は空配列 `[]`
+- `claims_verification` → Phase 3.5.7 の `_claims.json.results[]` をそのまま転記。Phase 3.5 を起動しなかった (= `inference_only` / `train_optional`) 場合は空配列 `[]`
 - `archive_path` → Step 5 で生成されるアーカイブパス（親ディレクトリからの絶対）。Step 2 時点は `null` 仮置き、Step 5 成功時のみ更新
 
 **status 判定**（上から順、最初にマッチしたものを採用）:
@@ -600,6 +841,18 @@ fi
   - 推論成功ゼロ件で全 attempt 消化
 - `partial`: pixi install 成功 + 推論 1 件以上成功 + 一部未達
 - `success`: pixi install 成功 + quickstart 推論が全成功
+
+**Phase 3.5 (full training) 完走時の追加ルール (P0-C)**:
+
+`claims_verification[]` が存在 (= train_required + paper_claims が非空で Phase 3.5 を実行) する場合は、上記判定の **後段で** 以下を適用:
+
+| 集約結果 | report.json.status |
+|---|---|
+| 全 claim が `matched` または `within_tolerance` | `success` (上書き) |
+| `missed` が 1 件以上 | `partial` (上書き) |
+| eval が crash / 全 claim が `not_evaluated` | `partial` (上書き) |
+
+`claims_verification[]` が空 (= Phase 3.5 を起動しなかった or `inference_only`) の場合は既存ルールどおり。
 
 **MUST NOT**: Tier 3 到達時の `partial` へのデフォルト落とし。
 
@@ -721,6 +974,7 @@ PY
 | `{{DEVELOPER_BLOCK}}` | `usage.developer` をレンダリング |
 | `{{SAMPLES_BLOCK}}` | `samples.items` をレンダリング |
 | `{{NEXT_ACTIONS_BLOCK}}` | `next_actions` をレンダリング |
+| `{{CLAIMS_VERIFICATION_BLOCK}}` | `claims_verification[]` をレンダリング (Phase 3.5 を起動した場合のみ表示。空配列なら H2 セクションごと finalize_report が非表示化) |
 | `{{PIXI_TOML_CONTENT}}` | pixi.toml の内容（HTML エスケープ済み） |
 | `{{ERRORS_LIST}}` | エラーの `<li>` リスト（`failed`/`partial` 時のみ） |
 | `{{RELATED_ISSUES_BLOCK}}` | Step 1.8 で生成した `reports/_related_issues_block.html` をそのまま挿入（`failed`/`partial`/`infeasible` 時のみ） |
@@ -749,6 +1003,7 @@ FLAG_ARGS=()
 STATUS=$(jq -r '.status' reports/report.json)
 HEADLINE=$(jq -r '.failure_headline // empty' reports/report.json)
 ARCHIVE=$(jq -r '.archive_path // empty' reports/report.json)
+CLAIMS_COUNT=$(jq -r '.claims_verification | length' reports/report.json)
 case "$STATUS" in
   failed|partial)   FLAG_ARGS+=(--flag ERRORS) ;;
 esac
@@ -759,6 +1014,10 @@ fi
 if [ -n "$ARCHIVE" ]; then
   # Artifacts セクションに 📦 アーカイブパスの行を表示
   FLAG_ARGS+=(--flag ARCHIVE_PATH)
+fi
+if [ "$CLAIMS_COUNT" -gt 0 ]; then
+  # Phase 3.5 を起動して claim 突合した場合のみ Claims Verification セクションを表示
+  FLAG_ARGS+=(--flag CLAIMS_VERIFICATION)
 fi
 case "$STATUS" in
   failed|partial|infeasible)

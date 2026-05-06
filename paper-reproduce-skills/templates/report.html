@@ -83,6 +83,15 @@
   .ri-state-closed { background: var(--muted); }
   .ri-meta { color: var(--muted); font-size: 0.75rem; }
   .ri-meta code { background: transparent; color: inherit; font-size: 0.75rem; }
+  .claims-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .claims-table th, .claims-table td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
+  .claims-table th { background: var(--bg); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .claims-table td.claims-num { font-family: monospace; text-align: right; }
+  .claims-status-badge { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: 0.05em; }
+  .claims-status-matched { background: var(--success); }
+  .claims-status-within_tolerance { background: var(--success); }
+  .claims-status-missed { background: var(--failed); }
+  .claims-status-not_evaluated { background: var(--muted); }
   #file-protocol-warning { display: none; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
   #file-protocol-warning strong { display: block; margin-bottom: 0.5rem; color: #92400e; font-size: 0.95rem; }
   #file-protocol-warning p { margin: 0.25rem 0; font-size: 0.85rem; color: #78350f; }
@@ -184,6 +193,14 @@
   <h3>{{T_H3_DEVELOPER}}</h3>
 {{DEVELOPER_BLOCK}}
 </div>
+
+<!-- ===== Claims Verification (Phase 3.5 を実行した場合のみ) ===== -->
+{{#CLAIMS_VERIFICATION}}
+<h2>{{T_H2_CLAIMS_VERIFICATION}}</h2>
+<div class="card claims-verification">
+{{CLAIMS_VERIFICATION_BLOCK}}
+</div>
+{{/CLAIMS_VERIFICATION}}
 
 <!-- ===== Next Actions ===== -->
 <h2>{{T_H2_NEXT_ACTIONS}}</h2>

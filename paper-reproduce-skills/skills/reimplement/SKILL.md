@@ -127,13 +127,18 @@ check-jsonschema --schemafile /paper-reproduce-skills/schemas/analysis.schema.js
 
 `analysis.json.model_download` (重み) と `analysis.json.data_acquisition_table[]` (dataset) を一緒に取得する。
 
-| dataset の category | 挙動 |
+| dataset の category | 挙動 (= 「諦めない」原則) |
 |---|---|
 | `bundled` | スキップ |
 | `auto-fetch` | probe 済 reachable のため無条件取得 (curl / gdown / huggingface_hub) |
-| `assisted` | 取得手順を `next_actions` に明記し継続 |
-| `gated` | 認証手順を `next_actions` に明記し継続 |
-| `blocked` | `required_for_claims` 空なら無視、非空なら `errors[]` に追加 (P2-B、`experiment-loop` 参照) |
+| `assisted` | **必ず取得を試行する**: 既知の direct DL URL があれば curl / gdown を attempt loop で実行 (3 回まで Tier 1 retry)。試行成功で `auto-fetch` 相当として継続。試行で失敗したケースのみ `next_actions` に手動手順を追記。**「assisted だから試さない」は MUST NOT** |
+| `gated` | 認証 URL の dry-run probe を attempt 内で実行。401/403 が出た時点で `next_actions` に手動認証手順を追記、Phase 3 / 3.5 自体は継続 |
+| `blocked` | gdown 等を 1 回試して "rate-limited" / "domain administrator" 等が確定したら `errors[]` に追加 (P2-B、`experiment-loop` 参照)。`required_for_claims` 非空でも **試行ゼロで blocked 扱いするのは禁止** |
+
+**MUST NOT** (v0.1.1 regression 教訓):
+- `data_acquisition_table[].category` の draft 値だけを見て Phase 3.5 起動可否を判定する
+- `assisted` / `gated` を「諦めて next_actions 行きにする」だけで終わらせる (= 試行ゼロ regression を再発させる)
+- Phase 3 の dataset DL 段で取得が完了していないことを理由に Phase 3.5 を skip する (Phase 3.5 内の attempt loop でも試行する設計)
 
 ディスク容量チェック (DL 開始前):
 
@@ -177,11 +182,23 @@ json.dump({
 
 ## Phase 3.5: Full Training (条件付き)
 
-**起動判定 (2 条件 AND)**: `analysis.json.reproduction_mode == "train_required"` AND `analysis.json.paper_claims[]` が非空。両方満たさなければ smoke が最終結果として Phase 4 へ。
+**起動判定 (MUST 強制起動、v0.1.1 regression 教訓)**: 以下の 2 条件 AND を満たすときは **dataset 取得状況に関わらず必ず Phase 3.5 を起動する**:
 
-**所要時間 / GPU 余力 / disk で skip しない**: 「時間制限なし・全自動・claim 達成まで」がコンセプト。
+- `analysis.json.reproduction_mode ∈ {"train_required", "train_optional"}` (= 全 claim eval に学習が必要 / 一部 claim に学習が必要、のどちらでも起動。`train_optional` でも未カバー claim があるため training は走らせる)
+- `analysis.json.paper_claims[]` が非空
 
-**詳細実装**: `skills/experiment-loop/SKILL.md` の「Long-running training の fail-fast (P3-C)」節 (watcher 起動 / 検知ルール / Resume) を参照。
+両条件 AND を満たさない (= `inference_only` / `paper_claims=[]`) なら smoke が最終結果として Phase 4 へ。
+
+**MUST NOT** (Phase 3.5 を skip してよい唯一のケース以外で skip する判断):
+- 「dataset が `assisted` / `gated` / `blocked` で取れない」を理由に skip する → **必ず起動して experiment-loop 内で attempt 試行**
+- 「Phase 3 の smoke が success だから十分」と判定する → smoke は健全性確認のみ、claim 再現には full training が必須
+- 「データ取得が困難だから failure_recoverability=blocked → Phase 3.5 skip」と短絡する → blocked 判定は Phase 3.5 内の試行が全失敗してから
+
+**所要時間 / GPU 余力 / disk で skip しない**: 「時間制限なし・全自動・claim 達成まで」がコンセプト。Budget 上限なし。
+
+**dataset 取得は Phase 3.5 内の attempt loop で繰り返し試行**: Phase 3 Step 1 で取れなかった `assisted` / `gated` の dataset は、Phase 3.5 の最初に再度 gdown / curl / hf_api を試行する。Phase 3.5 内で取れたら training に進む。3 回試行しても全失敗の場合のみ、claim 単位で `claims_verification[].status=not_evaluated` を記録 (= eval は走らせない、ただし Phase 3.5 の起動自体は記録)。
+
+**詳細実装**: `skills/experiment-loop/SKILL.md` の「Long-running training の fail-fast (P3-C)」節 (watcher 起動 / 検知ルール / Resume) と「データ取得失敗の分類 (P2-B)」節を参照。
 
 ### eval 実行 + paper-claim-audit (P0-C)
 

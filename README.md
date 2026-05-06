@@ -1,143 +1,202 @@
 # paper-reproducer
 
-> `./bootstrap.sh <repo-url>` だけで、CV 論文のリポジトリを Pixi 環境構築から推論実行・レポート生成まで自動完走させる Claude Code プラグイン。
+<p align="center">
+  <img src="docs/logo.png" alt="paper-reproducer logo" width="720">
+</p>
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Claude Code plugin](https://img.shields.io/badge/Claude_Code-plugin-orange)](https://www.claude.com/product/claude-code)
-[![Pixi powered](https://img.shields.io/badge/Pixi-powered-yellow)](https://pixi.sh/)
+<p align="center">
+  <strong>Turn a computer vision paper repository into a Pixi-locked run, retry log, and audit-ready report.</strong>
+</p>
 
-<!-- TODO: docs/demo.gif (bootstrap → /reimplement → report.html, 30 秒) を貼る -->
+<p align="center">
+  <a href="README.ja.md">Japanese</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#example-output">Example Output</a> ·
+  <a href="#for-ai-consulting-teams">For AI Consulting Teams</a> ·
+  <a href="#commercial-boundary">Commercial Boundary</a>
+</p>
 
-## What you get
+<p align="center">
+  <a href="https://opensource.org/licenses/Apache-2.0"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
+  <a href="https://www.claude.com/product/claude-code"><img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude_Code-plugin-orange"></a>
+  <a href="https://pixi.sh/"><img alt="Pixi powered" src="https://img.shields.io/badge/Pixi-powered-yellow"></a>
+  <img alt="Status: early OSS" src="https://img.shields.io/badge/status-early_OSS-2ea44f">
+</p>
 
-- URL 1 つを渡すだけで、**Pixi 環境 + 実行コマンド + 推論結果 + 入出力サンプル + report.html** までホスト側に生成
-- conda / pip / Docker / setup.py など **6 種の依存管理形式をすべて Pixi に統一** し、`pixi.lock` で完全再現性を確保
-- 失敗しても **エラー診断ログと推奨修正案つきレポート** を残す。再現失敗もログとして資産化
+`paper-reproducer` is a Claude Code plugin for reproducing CV paper repositories from a GitHub URL. It clones the target repo, analyzes dependency files, converts the environment to Pixi, runs the available inference or demo path, retries with diagnostics, and writes a reproducibility report.
+
+It is built for the expensive middle of AI consulting and applied research work: deciding whether a paper repo can be made to run, what blocked it, and what evidence can be handed to a client or teammate.
+
+## Demo
+
+<!-- Reserved for the demo video. Suggested flow: ./bootstrap.sh <repo> -> /reimplement -> report.html. -->
+
+## Why
+
+Reproducing paper code is rarely blocked by one hard algorithmic problem. It is blocked by a pile of operational details:
+
+- stale `conda` environments, loose `requirements.txt`, Docker-only repos, or missing dependency files
+- CUDA, PyTorch, compiler, and system package mismatches
+- model weights, datasets, and demo commands scattered across README issues and scripts
+- failed attempts that disappear instead of becoming reusable debugging evidence
+
+`paper-reproducer` standardizes that workflow around Pixi, Docker, and a structured report trail.
+
+## What It Does
+
+1. **Clone and inspect** a target GitHub repository.
+2. **Classify dependencies** across conda, pip, pyproject, setup files, Dockerfiles, or source imports.
+3. **Build a Pixi environment** with locked Python, CUDA, compiler, and package choices.
+4. **Run inference or demos** when the repo exposes a feasible path.
+5. **Retry with diagnostics** instead of stopping at the first environment failure.
+6. **Generate reports** for human review, machine processing, and future reproduction attempts.
 
 ## Quick Start
 
-前提ツール: **Docker**, **Claude Code**, **NVIDIA Container Toolkit** (GPU 利用時)
+Prerequisites:
+
+- Docker
+- Claude Code
+- Python 3
+- NVIDIA Container Toolkit for GPU workloads
+- `tmux` and `flock` for batch mode
 
 ```bash
 git clone https://github.com/DenDen047/paper-reproducer.git
 cd paper-reproducer
-./bootstrap.sh https://github.com/some-user/some-paper.git
+./bootstrap.sh --lang en https://github.com/some-user/some-paper.git
 ```
 
-Claude Code が開いたらプロンプトで `/reimplement` を実行すれば、全自動再現が始まる。
+When Claude Code opens inside the container, run:
 
-> NVIDIA Container Toolkit が無くても起動するが、CV 論文は大半が GPU 必須なので入れておくことを推奨。
+```text
+/reimplement
+```
 
-## How it works
+For Japanese reports, omit `--lang en` or pass `--lang ja`.
+
+## Example Output
+
+Each run leaves an audit trail under the reproduced repository:
+
+| Path | Purpose |
+|---|---|
+| `reports/analysis.json` | Repository analysis, dependency classification, feasibility notes |
+| `reports/attempts.tsv` | Every build/run attempt, action, result, error tier, and duration |
+| `reports/environment.json` | Host, OS, CPU, GPU, CUDA, and Python snapshot |
+| `reports/report.json` | Machine-readable reproduction result |
+| `reports/report.html` | Human-readable report for review or client handoff |
+| `reports/samples/` | Input and output samples collected during reproduction |
+| `{repo}-{short_sha}.tar.gz` | Success snapshot archive, written next to the workspace |
+
+The important output is not just "it ran." The important output is a reusable record of what was tried, what worked, what failed, and what should happen next.
+
+## For AI Consulting Teams
+
+`paper-reproducer` is designed for teams that evaluate papers before a client PoC, technical proposal, or internal R&D sprint.
+
+Use it to:
+
+- reduce the time spent on first-pass paper repo setup
+- turn failed reproductions into structured evidence instead of lost debugging time
+- standardize Pixi-based environments across consultants and projects
+- produce client-readable reports with commands, environment snapshots, samples, and next actions
+- batch-check multiple candidate papers before choosing what to implement
+
+Commercial support and private extensions are planned around the operational layer: audit packs, safer execution policies, CI handoff, dashboards, and team enablement.
+
+## How It Works
 
 ```mermaid
 flowchart TD
-    Start([/reimplement]) --> Read["① 読む<br/>README と依存ファイルを解析<br/>→ 依存ファイル特定 + 6-Type 分類<br/>→ 必要な CUDA・VRAM・モデル重みを特定"]
-    Read --> Check{"② 判定<br/>このマシンで動かせる？<br/>（GPU / ディスク / 認証情報）"}
-    Check -- 不可 --> Fail["失敗レポート<br/>理由と代替案を提示"]
-    Check -- 可 --> Build["③ 環境構築<br/>Type 別戦略で依存を Pixi に変換<br/>→ pixi install が通るまで自動修正"]
-    Build --> Run["④ 実行<br/>モデル DL → 推論スクリプト実行<br/>GPU メモリ不足なら batch size / 精度を下げて再挑戦"]
-    Run --> Report["⑤ レポート<br/>実行コマンド・サンプル出力・次の一手を<br/>report.html にまとめる"]
+    Start([/reimplement]) --> Read["Read<br/>README, dependency files, scripts, demos"]
+    Read --> Classify["Classify<br/>A-F dependency type<br/>conda / pip / pyproject / Docker / setup / source"]
+    Classify --> Gate{"Feasible on this machine?<br/>GPU / disk / data / auth"}
+    Gate -- No --> Fail["Report blocker<br/>reason + alternatives"]
+    Gate -- Yes --> Build["Build<br/>Pixi env + lockfile<br/>retry until resolvable"]
+    Build --> Run["Run<br/>download weights<br/>execute inference/demo<br/>adapt for OOM when possible"]
+    Run --> Report["Report<br/>HTML + JSON + attempts.tsv + samples"]
 ```
 
-### 6-Type classification
+## Supported Dependency Types
 
-リポジトリの依存管理方式を自動判定し、すべて Pixi に変換する。
+`paper-reproducer` chooses a conversion strategy from the files found in the target repo.
 
-| 優先順位 | Type | 依存ファイル | 変換戦略 |
-|---------|------|-------------|---------|
-| 1 | A | environment.yml / conda.yaml | `pixi init --import` + Divide-and-Conquer |
-| 2 | C | pyproject.toml | `pixi init --pyproject` |
-| 3 | B | requirements.txt | `pixi init` + pypi-dependencies |
-| 4 | E | setup.py / setup.cfg | deps 抽出 → pypi-dependencies |
-| 5 | D | Dockerfile のみ | 命令解析 → Type A/B に合流 |
-| 6 | F | 依存ファイルなし | import 解析 + ソースマイニング |
+| Priority | Type | Source files | Strategy |
+|---:|---|---|---|
+| 1 | A | `environment.yml`, `conda.yaml` | `pixi init --import` plus divide-and-conquer fixes |
+| 2 | C | `pyproject.toml` | `pixi init --pyproject` |
+| 3 | B | `requirements.txt` | `pixi init` plus PyPI dependency conversion |
+| 4 | E | `setup.py`, `setup.cfg` | dependency extraction into Pixi |
+| 5 | D | `Dockerfile` only | parse image, apt, pip, CUDA, then converge to A/B strategy |
+| 6 | F | no dependency file | import analysis and source mining |
 
-### Experiment Loop
+## Batch Mode
 
-[karpathy/autoresearch](https://github.com/karpathy/autoresearch) 着想の自律リトライループ。`pixi install` が通り推論が走るまで、エラー診断 → 修正 → 再試行を自動で繰り返す。全試行は `attempts.tsv` に記録される。
-
-## Who is this for?
-
-- **AI コンサル / 受託エンジニア**: 顧客向けの論文調査・PoC 見積もりを高速化し、調査フェーズで毎回潰れる時間を削る
-- **研究者・大学院生**: SOTA 論文の追試環境を秒で立ち上げ、本来時間を割きたい比較実験・改良に集中する
-
-## Reference
-
-### Options
-
-<!-- AUTO-GENERATED: bootstrap.sh の usage() を SSOT として同期 -->
-
-| オプション | 役割 |
-|---|---|
-| `--repos <file>` | URL をファイルから読み込み (バッチモード) |
-| `--rebuild` | Docker イメージを強制再ビルド |
-| `--fresh` | 既存 clone を削除して再 clone |
-| `--lang <code>` | レポート出力言語: `ja` (デフォルト) / `en` |
-| `-h`, `--help` | ヘルプ表示 |
-
-| 環境変数 | 役割 |
-|---|---|
-| `WORKSPACE_DIR` | clone 先 (デフォルト: `~/paper-reproduce-workspaces`) |
-| `REPORT_LANG` | `--lang` と同等 (`--lang` が優先) |
-
-<!-- /AUTO-GENERATED -->
-
-```bash
-./bootstrap.sh --rebuild --lang en https://github.com/some-user/some-paper.git
-```
-
-### Batch mode
-
-複数の URL、または `--repos <file>` を渡すと並列バッチで走る。
+Pass multiple URLs or a file of URLs to launch parallel jobs in `tmux`.
 
 ```bash
 ./bootstrap.sh url1.git url2.git url3.git
 ./bootstrap.sh --repos repos.txt
 ```
 
-- 渡された URL の数だけ並列にコンテナを launch
-- 複数 GPU は外部プロセス未使用のものから自動選択し、`--gpus device=N` + `flock` で 1 GPU = 1 ジョブの排他を保証
-- 各ジョブは tmux ウィンドウで起動 (`Ctrl+b → n/p` で切替、`Ctrl+b → d` でデタッチ)
+In GPU environments, batch mode assigns free GPUs with `--gpus device=N` and `flock` so one GPU slot is used by one job at a time.
 
-### Output
+## CLI Reference
 
-`/reimplement` の実行中・完了後にホスト側へ永続化される:
+<!-- AUTO-GENERATED: bootstrap.sh usage() is the source of truth -->
 
-| パス | 内容 |
+| Option | Purpose |
 |---|---|
-| `$WORKSPACE_DIR/{repo}/reports/analysis.json` | Phase 1 の解析結果 |
-| `$WORKSPACE_DIR/{repo}/reports/attempts.tsv` | Experiment Loop の全試行ログ |
-| `$WORKSPACE_DIR/{repo}/reports/environment.json` | 実行マシンのスナップショット (host/OS/CPU/GPU/CUDA/Python) |
-| `$WORKSPACE_DIR/{repo}/reports/report.json` | 機械可読レポート |
-| `$WORKSPACE_DIR/{repo}/reports/report.html` | 目視確認用レポート (`REPORT_LANG` で言語切替) |
-| `$WORKSPACE_DIR/{repo}/reports/samples/` | 入出力サンプル |
-| `$WORKSPACE_DIR/{repo}-{short_sha}.tar.gz` | 状態スナップショット (成功時のみ) |
+| `--repos <file>` | Read target repository URLs from a file |
+| `--rebuild` | Force Docker image rebuild |
+| `--fresh` | Remove existing clones and clone again |
+| `--lang <code>` | Report language: `ja` or `en` |
+| `-h`, `--help` | Show help |
 
-## Design decisions
+| Environment variable | Purpose |
+|---|---|
+| `WORKSPACE_DIR` | Host clone directory, default `~/paper-reproduce-workspaces` |
+| `REPORT_LANG` | Same as `--lang`; overridden by `--lang` |
 
-- **Pixi**: conda-forge + uv を統合し、CUDA / gcc / CMake 等の非 Python 依存も宣言的に管理。`pixi.lock` で完全再現性を担保
-- **Claude Code (Docker sandboxed)**: `ghcr.io/prefix-dev/pixi` ベースのコンテナ内で全自動実行
-- **denkiwakame ワークフロー準拠**: defaults チャンネル除去、CUDA 統一、gcc を pixi 管理下に、Divide-and-Conquer、no-build-isolation 等
+<!-- /AUTO-GENERATED -->
 
-研究論文のコードを動かすのに最も時間がかかるのは環境構築。conda / pip / Docker / CUDA の混在を人手で解決するのは苦痛で、1 リポジトリに数時間〜数日かかることもある。本ツールは [denkiwakame 氏の Pixi ワークフロー](https://denkiwakame.notion.site/2ba3175c6b6a80d19141f5407c39ad4e?v=2ba3175c6b6a80a7acfe000c6c1b2117) に準拠し、あらゆる依存管理方式を Pixi に収束させることでこの問題を自動化する。
+## Limitations
+
+- Optimized for computer vision paper repositories first.
+- Does not bypass gated datasets, private model weights, or upstream license restrictions.
+- Does not guarantee that a paper claim is fully reproduced; it records the available reproduction path and blockers.
+- GPU-heavy papers may still be infeasible on the local machine.
+- Target repositories and downloaded assets remain governed by their original licenses.
+
+## Roadmap
+
+- Add a short demo video in this README.
+- Publish reproducible case studies from selected CV papers.
+- Add richer audit packs for consulting and procurement workflows.
+- Harden execution policies for untrusted paper code.
+- Add CI handoff templates for teams that want to keep reproduced recipes internally.
+- Explore private dashboards and commercial support packages.
+
+## Commercial Boundary
+
+The core `paper-reproducer` repository is Apache-2.0 licensed.
+
+The tool downloads, modifies, and executes third-party paper repositories. Those target repositories are not relicensed by this project; their original licenses and dataset/model terms still apply.
+
+Planned commercial work belongs above the OSS core: private support, audit-pack generation, safer execution profiles, reporting dashboards, and team-specific integration.
 
 ## Development
 
-- `main` ブランチをベースに開発。追加機能は `feature/<name>` ブランチを切って実装し、マージする
-- コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) に従う
-- バージョニングは [Semantic Versioning 2.0.0](https://semver.org/lang/ja/) / 変更履歴は [CHANGELOG.md](./CHANGELOG.md) を参照
-
-## License
-
-本リポジトリは **Apache License 2.0** の下で公開されている ([LICENSE](./LICENSE) 参照)。
-
-注意:
-
-- **再現対象のリポジトリ・論文コードは、それぞれの元ライセンスに従う**。`paper-reproducer` は他者のコードを取得・実行するツールであり、対象コードを Apache 2.0 で再配布するものではない。
-- 商用機能の拡張 (Web UI / 評価ダッシュボード / 監査パック生成 等) は別リポジトリでの開発を検討中。
+- Develop from the `main` branch.
+- Use `feature/<name>` branches for larger changes.
+- Follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+- Use [Semantic Versioning 2.0.0](https://semver.org/).
+- See [CHANGELOG.md](./CHANGELOG.md) for release notes.
 
 ## References
 
-- [denkiwakame - Pixi Advent Calendar 2024](https://denkiwakame.notion.site/2ba3175c6b6a80d19141f5407c39ad4e?v=2ba3175c6b6a80a7acfe000c6c1b2117) (Day 5, 12, 17, 19)
+- [Pixi](https://pixi.sh/)
+  - [denkiwakame - Pixi Advent Calendar 2024](https://denkiwakame.notion.site/2ba3175c6b6a80d19141f5407c39ad4e?v=2ba3175c6b6a80a7acfe000c6c1b2117)
+- [Claude Code](https://www.claude.com/product/claude-code)
 - [karpathy/autoresearch](https://github.com/karpathy/autoresearch)

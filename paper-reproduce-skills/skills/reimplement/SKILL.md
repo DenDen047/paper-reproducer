@@ -178,6 +178,8 @@ json.dump({
 
 `experiment-loop` の `inference` 判定フロー (4-Tier) で自律リトライ。成功 → Phase 4 へ (`reproduction_mode=inference_only` の場合) または Phase 3.5 へ (`train_required` / `train_optional` の場合)。
 
+**引数選択 (P0-E ポテンシャル最大化)**: inference attempt は **論文・公式コードのデフォルト引数のまま起動する** のが既定。Phase 3 Step 3 を起動する前に README / `examples/` / `configs/inference*.yaml` を読み、宣言値 (`num_inference_steps`, `iterations`, `num_frames`, `resolution`, `num_views`, etc.) をそのまま `pixi run python ...` の引数として渡す。"smoke test 用に小さくする" / "時間がかかるから減らす" は **MUST NOT** (= 詳細は § 核心原則 § ポテンシャル最大化)。OOM が出た場合のみ OOM ladder で正当な縮小を発動し、`attempts.tsv.intent` に物理理由を明記する。
+
 ---
 
 ## Phase 3.5: Full Training (条件付き)
@@ -273,6 +275,11 @@ pixi run python /paper-reproduce-skills/scripts/snapshot_env.py reports/environm
 - `priority` と `cost` を混同しない: "24GB GPU で full-res" は `cost=gpu_upgrade` なので現手元では `high` に置かない
 - `high` は 0-2 件
 - `action` / `reason` は `$REPORT_LANG` に従う、`command` は原文ママ
+
+**MUST NOT (P0-E ポテンシャル最大化との整合)**:
+- **`status=success` の next_action に「論文デフォルト引数で再実行」を載せない** (例: 「`--num_inference_steps` を 50 に戻して再実行」「`iterations` を 30000 に戻す」「frame 数をデフォルトに戻す」等)。これが必要に見えた時点で、Phase 3 が論文デフォルトで動かしていなかった証拠 = 核心原則 P0-E 違反。**status を `partial` に再考し**、当該 next_action は `partial` 側で「未達 Phase の指示」として記録する
+- `success` で `cost=free` の「論文デフォルトに戻す」項目は禁止 (= 自分で削った物を user に戻させる丸投げ)。`cost=gpu_upgrade` (= ハード制約で削減した正当な縮小の補完) なら可
+- 「smoke 確認は最小構成で十分」を理由に、デフォルト品質での再実行を `next_actions` 任せにする運用
 
 ### Step 1.7.5: 失敗の主因サマリ
 
@@ -490,6 +497,35 @@ Archive: {archive_path or "(not created; Phase 1 infeasible)"}
 ### NEVER STOP
 
 失敗しても止まらない。`experiment-loop` の Tier 分類で自律修正・再試行。停止条件は全 Phase 完了または手動停止のみ。
+
+### ポテンシャル最大化 (Maximum Potential, P0-E)
+
+このスキルの最終成果物は **「論文が提案する手法のポテンシャルを実機で示すレポート」** であり、smoke test ("it works") ではない。動作確認は途中目標。「動いた」だけのレポートには価値がない — **手元の HW 制約の中で論文の最大出力を引き出すこと** がレポート最大の目的。
+
+**目標優先順位** (上から):
+
+1. claim 再現 (Phase 3.5 で `paper_claims[]` 達成)
+2. **論文・公式コードのデフォルト引数で動かす** — README / `examples/` / `configs/*.yaml` の宣言値 (`num_inference_steps=50`, `iterations=30000`, `resolution=1024`, `num_views=N`, `num_samples=M` 等) を**変更しない**
+3. 実行時間最小化 — 上記 1, 2 が **OOM 等のハードウェア制約で失敗した場合のみ** 削る (= OOM ladder に従う)
+
+**MUST NOT** (= 時間短縮のみが動機の削減):
+
+- "速いから" / "smoke として最小確認" を理由に `num_inference_steps` / `iterations` / `epochs` / `num_steps` を減らす
+- 入力フレーム数 / multi-view 数 / sample 数を OOM 以外で減らす
+- 解像度 (`--resolution` / `--img_size` / `--height` / `--width`) を OOM 以外で下げる
+- `next_actions[]` に「論文デフォルト引数で再実行」を **`status=success` で** 高優先度として載せる (= デフォルトを使い切れていない自白 → status を `partial` に再考すべき。Step 1.7 参照)
+
+**正当な縮小 (記録要)**:
+
+- OOM ladder Step 2 (batch 半減) / Step 3 (解像度半減) — `attempts.tsv.intent` に「OOM で frame 数を半減 (Step 2)」のような**物理的根拠**を明記。`"to save time"` / `"for quick smoke"` は intent として禁止
+- 著者が README / `examples/` で **明示的に** "quickstart" / "demo" として宣言している reduced-parameter 設定 — **論文デフォルト attempt と併存** (= デフォルト版も別 attempt で必ず走らせる)
+
+**実行時間の扱い**:
+
+- 推論 1 回が数分→1 時間でも、デフォルトで完走させる (= 待つ)
+- training は `ScheduleWakeup` で待つ。8 時間でも問題ない (Phase 3.5 と同じ運用)
+- 「時間がかかる」だけを理由に `status=partial` / `failed` にしない (= 失敗判定は claim 達成可否のみ、所要時間で決まらない)
+- `experiment-loop` の tier 判定に**実行時間は影響しない** (= 数時間かかっても tier0/1/2 にならない)
 
 ### Background / long-running は絶対パス (P3-A)
 

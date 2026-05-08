@@ -5,6 +5,76 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-05-08
+
+### Added — P0-E ポテンシャル最大化原則
+
+「`/reimplement` の最終成果物は **論文ポテンシャルの実機提示** であり
+smoke test ("it works") ではない」を明文化した新原則 `P0-E` を確立。
+Phase 3 で Claude が時間短縮のため `num_inference_steps` / `iterations` /
+`num_views` 等をデフォルト値から減らし、「動いた」だけで success と判定して
+論文デフォルトでの再実行を `next_actions` 任せにする運用を抑止する。
+
+#### Added (B: 原則の確立)
+
+- **`reimplement/SKILL.md` 核心原則**: 新規 `P0-E ポテンシャル最大化` 節。
+  目標優先順位 (claim 再現 > 論文デフォルト引数 > 実行時間最小化) と
+  「実行時間は tier 判定に影響しない」(数時間かかっても tier0/1/2 にならない)
+  ことを明記
+- **`experiment-loop/SKILL.md` NEVER STOP 直下**: P0-E への参照と
+  「`"to save time"` / `"for quick smoke"` は intent 禁止」を追加
+- **`reimplement/SKILL.md` Step 1.7 next_actions**: `status=success` の
+  next_action に「論文デフォルトで再実行」を載せることを **MUST NOT** 化
+  (= 自分で削った物を user に丸投げする運用を禁止)。`cost=free` で
+  「デフォルトに戻す」項目は禁止、`cost=gpu_upgrade` (= ハード制約での
+  正当な縮小の補完) なら可
+
+### Fixed — P0-E の手続き化 + サンプル表示の修正
+
+#### Fixed (D: Phase 3 Step 3 の手続き化)
+
+P0-E 原則を文書化しただけでは Phase 3 実行中に Claude が読み戻さず、
+依然として `--num-views 4` / `--texture-size 256` のような reduced-param
+で smoke 完了 → success 判定する挙動が再現された (例: ReLi3D)。
+「読まれない原則は存在しないのと同じ」という LLM 駆動の特性に対し、
+**成果物 + Tier 0 違反** で手続き化することで抑止。
+
+- **`reimplement/SKILL.md` Phase 3 Step 3** を 2 sub-step に分割:
+  - **Step 3a**: `reports/_paper_default_args.json` を**物理的成果物として
+    必ず作る** (作らずに Step 3b に進むのは **Tier 0 違反**)。README /
+    `examples/` / `configs/inference*.yaml` から全推論引数のデフォルト値を
+    抽出し、`{value, source}` 形式で保存
+  - **Step 3b**: 最初の attempt は paper-default 全値必須、
+    `attempts.tsv.intent` に `"P0-E paper-default attempt; args from {source}"`
+    を必須含有。reduced-param は paper-default success 後の追加 attempt
+    としてのみ許可。`attempts.tsv` に paper-default success 行が無いまま
+    Phase 4 へ進むのも **Tier 0 違反**
+
+#### Fixed (3D / video サンプルで入力画像が表示されない)
+
+- **`templates/RENDERING.md`**: `type=mesh` / `gaussian_splat` /
+  `point_cloud` / `video` の HTML テンプレが `input_paths` を一切
+  参照していなかった (例: PartCrafter / Geometry-Grounded-GS で
+  `input_paths` が JSON にあるのに HTML 上に表示なし)
+- 4 type 共通の「入力サムネイル共通ブロック」を新設し、各 type 雛形から
+  コメントで参照させる。CSS (`sample-grid-2/3`) は既存、schema / Python
+  script は無変更。既存 `report.json` は変更不要 — HTML 再レンダリング
+  だけで入力画像が表示される
+
+#### Fixed (`.glb` / `.gltf` mesh が viewer で上下反転)
+
+- **`sample-embedder/SKILL.md` Step 4.5**:
+  `analysis.json.coord_convention.world="opencv"` を `sample-embedder` が
+  そのまま `metadata.coord_convention` に転記し、viewer が X 軸 180°
+  回転を適用していた (例: ReLi3D)。論文の **内部** convention (training
+  時の camera 座標系) と出力ファイルの convention の混同
+- 優先順位を更新: `type=mesh` かつ拡張子が `.glb` / `.gltf` の場合は
+  必ず `opengl` を採用 (glTF 2.0 spec §3.3 が Y-up を強制するため、
+  論文の内部 convention は exporter が自動変換済み)。`.ply` / `.obj` の
+  既存ヒューリスティクスは変更なし
+- 既存の glb 系レポートは `metadata.coord_convention="opencv"` →
+  `"opengl"` に手動修正で即修復可
+
 ## [0.1.2] - 2026-05-06
 
 ### Fixed — v0.1.1 regression の修正 (B+C hybrid)

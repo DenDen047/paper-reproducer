@@ -160,10 +160,25 @@ null 時: `<p class="usage-empty">{dict.empty_developer}</p>`
 
 3D type (`gaussian_splat` / `point_cloud` / `mesh`) では **`data-coord-convention="{metadata.coord_convention or 'unknown'}"`** 属性を必ず付ける。viewer 側がこの値を見て X 軸 180° 回転を適用する。値は `opencv` / `opengl` / `z_up` / `unknown` のいずれか。
 
+### 入力サムネイル共通ブロック (3D / video 共通)
+
+`type ∈ {gaussian_splat, point_cloud, mesh, video}` のとき、`input_paths` が非空ならば **`<h4>` 直後 / 3D viewer または `<video>` の直前** に下記グリッドを挿入する。`input_paths` が空配列のときは丸ごと省略 (= 従来挙動)。
+
+```html
+<!-- N = min(input_paths.length, 4)。列数: N<=2 → 2, N>=3 → 3 -->
+<div class="sample-grid sample-grid-{N>=3 ? 3 : 2}">
+  <figure><img src="{input_paths[i]}" alt="input" loading="lazy"><figcaption>{dict.fig_input}{N>1 ? ' ' + (i+1) : ''}</figcaption></figure>
+  ...
+</div>
+```
+
+caption は単一入力なら `{dict.fig_input}` のみ、複数入力なら `{dict.fig_input} 1` / `{dict.fig_input} 2` … と通し番号。`input_paths.length > 4` の場合は先頭 4 件のみ描画し、超過分は `<p class="usage-note">` か `metadata.note` で件数を言及する。CSS クラス (`sample-grid` / `sample-grid-2` / `sample-grid-3`) は既に `report.html` 内で定義済み (新規追加不要)。
+
 **`gaussian_splat`**:
 ```html
 <div class="sample-item">
   <h4>{label}</h4>
+  <!-- input_paths が非空なら ここに「入力サムネイル共通ブロック」を挿入 -->
   <div class="viewer-3d viewer-gsplat" data-src="{output_paths[0]}" data-coord-convention="{metadata.coord_convention}"></div>
   <p class="usage-note">{dict.note_gaussians} {metadata.sampled_point_count ?? metadata.gaussian_count}{metadata.sampled_point_count != null ? ' / ' + metadata.original_point_count + ' (' + metadata.sampling_method + ')' : ''}</p>
 </div>
@@ -174,6 +189,7 @@ null 時: `<p class="usage-empty">{dict.empty_developer}</p>`
 ```html
 <div class="sample-item">
   <h4>{label}</h4>
+  <!-- input_paths が非空なら ここに「入力サムネイル共通ブロック」を挿入 -->
   <div class="viewer-3d viewer-pointcloud" data-src="{output_paths[0]}" data-coord-convention="{metadata.coord_convention}"></div>
   <p class="usage-note">{dict.note_points} {metadata.sampled_point_count ?? metadata.point_count}{metadata.sampled_point_count != null ? ' / ' + metadata.original_point_count + ' (' + metadata.sampling_method + ')' : ''}</p>
 </div>
@@ -184,6 +200,7 @@ null 時: `<p class="usage-empty">{dict.empty_developer}</p>`
 ```html
 <div class="sample-item">
   <h4>{label}</h4>
+  <!-- input_paths が非空なら ここに「入力サムネイル共通ブロック」を挿入 -->
   <div class="viewer-3d viewer-mesh" data-src="{output_paths[0]}" data-coord-convention="{metadata.coord_convention}"></div>
   <p class="usage-note">{dict.note_format} {metadata.format}</p>
 </div>
@@ -194,6 +211,7 @@ null 時: `<p class="usage-empty">{dict.empty_developer}</p>`
 ```html
 <div class="sample-item">
   <h4>{label}</h4>
+  <!-- input_paths が非空なら ここに「入力サムネイル共通ブロック」を挿入 (I2V seed 画像など) -->
   <video class="sample-video" src="{output_paths[0]}" autoplay muted loop playsinline preload="metadata">
     Your browser does not support HTML5 video.
   </video>

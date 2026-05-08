@@ -18,13 +18,8 @@ jobs:
           required_files=(
             "paper-reproduce-skills/.claude-plugin/plugin.json"
             "paper-reproduce-skills/Dockerfile"
-            "paper-reproduce-skills/commands/reimplement.md"
             "paper-reproduce-skills/templates/report.html"
-            "paper-reproduce-skills/skills/repo-analyzer/SKILL.md"
-            "paper-reproduce-skills/skills/pixi-env-builder/SKILL.md"
-            "paper-reproduce-skills/skills/dep-converter/SKILL.md"
-            "paper-reproduce-skills/skills/experiment-loop/SKILL.md"
-            "paper-reproduce-skills/skills/cuda-dependency-resolver/SKILL.md"
+            "paper-reproduce-skills/skills/reimplement/SKILL.md"
           )
           missing=0
           for f in "${required_files[@]}"; do
@@ -66,17 +61,6 @@ jobs:
             echo "  OK"
           done
 
-      - name: Validate command frontmatter
-        run: |
-          for cmd in paper-reproduce-skills/commands/*.md; do
-            echo "Checking $cmd..."
-            head -1 "$cmd" | grep -q "^---$" || {
-              echo "::error::$cmd missing YAML frontmatter"
-              exit 1
-            }
-            echo "  OK"
-          done
-
   docker-build:
     name: Docker Build Test
     runs-on: ubuntu-latest
@@ -90,7 +74,7 @@ jobs:
       - name: Verify image contents
         run: |
           docker run --rm --entrypoint="" paper-reproduce-test \
-            ls /paper-reproduce-skills/commands/reimplement.md
+            ls /paper-reproduce-skills/skills/reimplement/SKILL.md
           docker run --rm --entrypoint="" paper-reproduce-test \
             ls /paper-reproduce-skills/templates/report.html
           docker run --rm --entrypoint="" paper-reproduce-test \

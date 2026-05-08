@@ -355,14 +355,21 @@ for _ in range(12):  # 12 回で 4096 倍の dynamic range をカバー
 
 `mv_to_gaussians` / `images_to_pointcloud` / `image_to_mesh` の `metadata.coord_convention` に **その 3D 出力の座標系規約** を入れる。Three.js viewer がこの値を見て X 軸 180° 回転を適用するか決める。誤判定で **上下逆さま / 鏡像表示** になる古典バグを防ぐため。
 
-優先順位:
+**重要な区別**: `analysis.json.coord_convention.world` は論文の **内部** convention (training / 推論ループで使う camera 座標系) を示すが、出力ファイルの convention とは**別物**。glTF / OBJ exporter は通常 spec に従って内部座標から出力座標へ自動変換する。`metadata.coord_convention` には **ファイルとして保存されている convention** を入れる必要があり、論文の内部 convention をそのまま転記してはいけない。
 
-1. `analysis.json.coord_convention.world` を一次情報として採用
-2. 上記が `unknown` で `mv_to_gaussians` の場合: **`opencv` に格上げ**（3DGS PLY 形式は事実上 OpenCV ヘリテージ Inria/Mip-Splatting/Grendel-GS）。`note` に `"coord inferred from 3DGS heritage"` を追記
-3. 上記が `unknown` で `images_to_pointcloud` の場合: 出力 `.ply` 先頭で Z 分布をチェック（`pixi run python -c "..."` 等で `pts[:,2].min(), pts[:,2].max()` を取得）。両方正なら `opencv`、両方負なら `opengl`、混在なら `unknown` のまま
-4. それ以外は `unknown` を保持し、`samples.note` に `"coord_convention=unknown for 3D output; viewer may show flipped — verify manually"` を 1 行追記
+優先順位 (上から、最初にマッチしたルールを採用):
+
+1. **`type=mesh` で出力拡張子が `.glb` / `.gltf`**: 必ず **`opengl`** を採用 (glTF 2.0 仕様は Y-up, -Z forward = OpenGL convention)。論文の内部 convention は exporter が自動変換しているためここでは無視。例外: `analysis.json.coord_convention.evidence` に「export 時に Y 軸を反転」「glTF spec を破る」等の **明示的記述** があるときのみ手動上書き可
+2. `analysis.json.coord_convention.world` の値が `opencv` / `opengl` / `z_up` のいずれかで、上記 1 が効かない (= `.ply` / `.obj` / point_cloud / gaussian_splat) 場合: その値を採用
+3. `analysis.json.coord_convention.world` が `unknown` で `mv_to_gaussians` の場合: **`opencv` に格上げ**（3DGS PLY 形式は事実上 OpenCV ヘリテージ Inria/Mip-Splatting/Grendel-GS）。`note` に `"coord inferred from 3DGS heritage"` を追記
+4. `analysis.json.coord_convention.world` が `unknown` で `images_to_pointcloud` の場合: 出力 `.ply` 先頭で Z 分布をチェック（`pixi run python -c "..."` 等で `pts[:,2].min(), pts[:,2].max()` を取得）。両方正なら `opencv`、両方負なら `opengl`、混在なら `unknown` のまま
+5. それ以外 (= `.obj` mesh で analysis.json も `unknown`): `unknown` を保持し、`samples.note` に `"coord_convention=unknown for 3D output; viewer may show flipped — verify manually"` を 1 行追記
 
 値は `"opencv" | "opengl" | "z_up" | "unknown"` のいずれか。
+
+### glTF 規約の根拠
+
+glTF 2.0 spec §3.3 (Coordinate System and Units): "glTF uses a right-handed coordinate system. glTF defines +Y as up, +Z as forward, and -X as right". つまり **glTF ファイル = OpenGL convention (Y-up)** が仕様で固定。Three.js / Blender / 各 DCC は spec に従ってロードするため、`.glb`/`.gltf` には X 軸 180° 回転 (= `opencv`) を適用してはならない。論文が OpenCV cameras で training していても、`.glb` への export 時点で Y-up へ変換済み。
 
 ### Z 分布による判別レシピ（参考）
 

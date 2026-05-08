@@ -174,11 +174,52 @@ json.dump({
 }, open("reports/telemetry.json", "w"), indent=2)
 ```
 
-### Step 3: デモ/推論スクリプト実行
+### Step 3: デモ/推論スクリプト実行 (P0-E 手続き的 enforcement)
 
-`experiment-loop` の `inference` 判定フロー (4-Tier) で自律リトライ。成功 → Phase 4 へ (`reproduction_mode=inference_only` の場合) または Phase 3.5 へ (`train_required` / `train_optional` の場合)。
+Phase 3 Step 3 は **2 sub-step に分かれる**。Step 3a を完了せずに Step 3b に進むのは **Tier 0 違反**。Step 3b で paper-default success が記録されないまま Phase 4 に進むのも **Tier 0 違反**。
 
-**引数選択 (P0-E ポテンシャル最大化)**: inference attempt は **論文・公式コードのデフォルト引数のまま起動する** のが既定。Phase 3 Step 3 を起動する前に README / `examples/` / `configs/inference*.yaml` を読み、宣言値 (`num_inference_steps`, `iterations`, `num_frames`, `resolution`, `num_views`, etc.) をそのまま `pixi run python ...` の引数として渡す。"smoke test 用に小さくする" / "時間がかかるから減らす" は **MUST NOT** (= 詳細は § 核心原則 § ポテンシャル最大化)。OOM が出た場合のみ OOM ladder で正当な縮小を発動し、`attempts.tsv.intent` に物理理由を明記する。
+#### Step 3a: paper-default args の抽出 (MUST、所要 5-15 分)
+
+attempt loop 開始前に必ず実施し、**物理的成果物として `reports/_paper_default_args.json` を残す**。
+
+1. 以下を順に grep し、**全推論引数のデフォルト値**を抽出:
+   - `README.md` の "Quickstart" / "Inference" / "Demo" 節
+   - `examples/*.md` / `examples/*.py`
+   - `configs/inference*.yaml` / `configs/default*.yaml`
+   - `demo*.py` / `inference*.py` の argparse `default=`
+2. 抽出結果を `reports/_paper_default_args.json` に保存:
+   ```json
+   {
+     "command_template": "pixi run python -m <module> --input <X> --output <Y>",
+     "defaults": {
+       "--num-views":            {"value": 32,   "source": "configs/default.yaml:8"},
+       "--texture-size":         {"value": 1024, "source": "README.md:47"},
+       "--num-inference-steps":  {"value": 50,   "source": "configs/default.yaml:12"}
+     },
+     "reduced_demo_modes": [
+       {"name": "quickstart", "args": {"--num-views": 4, "--texture-size": 256}, "source": "README.md:19", "note": "著者が明示的に reduced demo として宣言"}
+     ],
+     "notes": "抽出理由 / 例外メモ"
+   }
+   ```
+3. 抽出が困難 (configs / README に明示なし、CLI default のみ) の場合は `defaults={}` で保存し、`notes` に「argparse default に委ねる」旨を記録。空の `_paper_default_args.json` を残すこと自体は許可される (= Step 3a 完了の証跡)
+4. **MUST NOT**: `_paper_default_args.json` を作らずに Step 3b に進む / 抽出値を Claude が "smoke 用に縮小" して保存する (= 改ざん)
+
+#### Step 3b: paper-default attempt + experiment-loop
+
+最初の attempt (= **「P0-E reference attempt」**) は `reports/_paper_default_args.json.defaults` の **全値を渡して実行**。`attempts.tsv.intent` に必ず `"P0-E paper-default attempt; args from {source}"` を含める。
+
+成否判定:
+
+| 結果 | 次の動作 |
+|---|---|
+| **success** | Phase 4 へ (`reproduction_mode=inference_only`) または Phase 3.5 へ (`train_*`) |
+| **OOM (Tier 2-hardware)** | OOM ladder。各 ladder step の `intent` に「OOM で {param} を半減 (Step N)」のような **物理理由** を明記。`"to save time"` / `"for quick smoke"` / `"短時間で動作確認"` は禁止 (= Tier 0 違反) |
+| **コード修正で直る (Tier 1 / 2-config)** | 修正後、**再度 paper-default の全値で実行**。reduced-param で「とりあえず動かす」は **MUST NOT** |
+
+**reduced-param 試行** (= デフォルトより小さい値、`reduced_demo_modes` 含む) は **paper-default attempt が success になった後** の追加 attempt としてのみ許可。`attempts.tsv` に paper-default success の行 (= `intent` に `P0-E paper-default attempt` を含む success 行) が無いまま Phase 4 に進むのは **Tier 0 違反**。
+
+`experiment-loop` の `inference` 判定フロー (4-Tier) は Step 3b の中で発動する。詳細は `skills/experiment-loop/SKILL.md` 参照。
 
 ---
 

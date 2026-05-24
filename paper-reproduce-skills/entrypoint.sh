@@ -15,6 +15,10 @@ if [[ -n "$libc_ver" ]] && [[ "$(printf '%s\n2.31\n' "$libc_ver" | sort -V | hea
   echo "[entrypoint] WARN: libc $libc_ver < 2.31 — open3d 0.19+ may fail to install" >&2
 fi
 
+# モデルは host の ~/.claude/settings.json (model: opus[1m]) をそのまま継承する。
+# opus[1m] (1M context) は Claude Code <2.1.144 + サブスク(OAuth)認証で
+# "400 role 'system' is not supported on this model" を返すため、image 内の
+# claude が新しいことが前提 (Dockerfile の CLAUDE_CODE_BUILD cache-bust で担保)。
 exec claude \
   --dangerously-skip-permissions \
   --plugin-dir /paper-reproduce-skills \

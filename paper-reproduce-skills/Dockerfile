@@ -49,6 +49,14 @@ USER claude
 # `npm install -g` だと /usr/lib/node_modules/ が root 所有になり、
 # 非 root 実行下では auto-update が失敗するため。
 # https://code.claude.com/docs/en/setup
+#
+# install.sh は常に最新版を入れるが、この RUN は Docker layer cache に乗るため
+# 一度ビルドすると古い版に固定される (例: 2026-05-10 ビルドの image は 2.1.138)。
+# opus[1m] (1M context) は 2.1.144 より前の版がサブスク認証下で扱えず
+# "400 role 'system' is not supported on this model" を返すので、最新版を確実に
+# 入れ直せるよう CLAUDE_CODE_BUILD で cache を破棄できるようにする。
+# bootstrap.sh が build 毎に日付を渡すため、--rebuild すれば必ず最新版を取得する。
+ARG CLAUDE_CODE_BUILD=unset
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # bootstrap.sh が host の ~/.claude/settings.json を mount するため、

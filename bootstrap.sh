@@ -130,9 +130,13 @@ elif [[ "$IMAGE_UID_LABEL" != "${HOST_UID}:${HOST_GID}" ]]; then
 fi
 if [[ "$NEED_BUILD" == "1" ]]; then
   log "building image: $IMAGE_NAME (UID=$HOST_UID GID=$HOST_GID)"
+  # CLAUDE_CODE_BUILD に日付を渡し、--rebuild した日が変われば install.sh の
+  # layer cache が破棄され最新の Claude Code を取り直す (opus[1m] を扱える
+  # ≥2.1.144 を確実に入れるため。Dockerfile 参照)。
   docker build \
     --build-arg "USER_UID=${HOST_UID}" \
     --build-arg "USER_GID=${HOST_GID}" \
+    --build-arg "CLAUDE_CODE_BUILD=$(date +%Y%m%d)" \
     --label "host.uid=${HOST_UID}" \
     --label "host.gid=${HOST_GID}" \
     -t "$IMAGE_NAME" "$DOCKERFILE_DIR"

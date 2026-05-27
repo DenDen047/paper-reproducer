@@ -64,7 +64,11 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # rtk が無いと全 Bash コマンドの直前で hook が失敗するので container にも入れる。
 # check-jsonschema は Phase 1 / Phase 4 の schema gate で使う (analysis.json /
 # report.json の structural invariants を機械検証する)。
-RUN pixi global install rtk-cli check-jsonschema
+# gh / jq は experiment-loop と Phase 4 の Issue/PR 検索
+# (scripts/search_github_issues.sh) と analysis.json の jq パースに必須。
+# 無いと "gh/jq が無く Phase 4 では関連 Issue 検索をスキップ" になる。
+# pixi-only ポリシーに従い conda-forge から入れる (apt/brew は使わない)。
+RUN pixi global install rtk-cli check-jsonschema gh jq
 
 ENV PATH=/home/claude/.pixi/bin:/home/claude/.local/bin:$PATH
 

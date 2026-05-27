@@ -183,6 +183,25 @@ if [[ -f "$HOME/.claude.json" ]]; then
   CLAUDE_JSON_MOUNT=(-v "$HOME/.claude.json:/home/claude/.claude.json")
 fi
 
+# --- gh 認証トークンの伝播 ---
+# コンテナには ~/.config/gh をマウントしないので、host で認証済みの gh から
+# トークンを取り出して GH_TOKEN env で渡す。これが無いと experiment-loop /
+# Phase 4 の Issue・PR 検索 (scripts/search_github_issues.sh) が gh 未認証扱いで
+# スキップされる ("gh/jq が無く...スキップ" の片割れ; gh/jq 本体は Dockerfile で導入済)。
+# 値はコマンドラインに出さず env 名のみ渡す (ANTHROPIC_API_KEY と同じ流儀)。
+# host に gh が無い / 未認証なら何も渡さず、従来どおり graceful skip にフォールバックする。
+GH_TOKEN_FLAGS=()
+if command -v gh >/dev/null 2>&1; then
+  GH_AUTH_TOKEN="$(gh auth token 2>/dev/null || true)"
+  if [[ -n "$GH_AUTH_TOKEN" ]]; then
+    export GH_TOKEN="$GH_AUTH_TOKEN"
+    GH_TOKEN_FLAGS=(-e GH_TOKEN)
+    log "gh auth token detected — propagating to container as GH_TOKEN"
+  else
+    log "gh present but not authenticated — container Issue search will skip (run: gh auth login)"
+  fi
+fi
+
 # --- TERM/COLORTERM 伝播 ---
 # 未設定だと Docker が TERM=dumb を渡し、Claude Code の Ink TUI が描画されない。
 TERM_ENV=(-e "TERM=${TERM:-xterm-256color}")
@@ -253,6 +272,7 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
     "${CLAUDE_JSON_MOUNT[@]}" \
     "${SYMLINK_MOUNTS[@]}" \
     "${TERM_ENV[@]}" \
+    "${GH_TOKEN_FLAGS[@]}" \
     -e "REPORT_LANG=$REPORT_LANG" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$REPO_NAME" \
@@ -301,6 +321,7 @@ docker_cmd_for() {
     "${CLAUDE_JSON_MOUNT[@]}" \
     "${SYMLINK_MOUNTS[@]}" \
     "${TERM_ENV[@]}" \
+    "${GH_TOKEN_FLAGS[@]}" \
     -e "REPORT_LANG=$REPORT_LANG" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$name" \

@@ -202,6 +202,40 @@ if command -v gh >/dev/null 2>&1; then
   fi
 fi
 
+# --- HuggingFace 認証 / キャッシュの伝播 ---
+# 一部の gated モデル (facebook 製等) は申請済みアカウントのトークンが無いと
+# DL できない。host の HF 認証とモデルキャッシュをコンテナに引き継ぐ:
+#   (1) host の HF cache dir を mount → token ファイル + hub/xet キャッシュを共有。
+#       gated モデルの host 既 DL 分を再利用でき、再 DL を避けられる。
+#       コンテナの claude user は host UID に揃えてあるので読み書きできる。
+#   (2) env / token ファイルから HF_TOKEN を解決し env でも渡す
+#       (token をファイル化せず env だけで持つケースの保険; 値はコマンドライン
+#        に出さず env 名のみ渡す = GH_TOKEN と同じ流儀)。
+# host に HF 認証もキャッシュも無ければ何も渡さず、従来どおり public DL のみで進む。
+HF_HOME_DIR="${HF_HOME:-$HOME/.cache/huggingface}"
+HF_CACHE_MOUNT=()
+if [[ -d "$HF_HOME_DIR" ]]; then
+  HF_CACHE_MOUNT=(-v "$HF_HOME_DIR:/home/claude/.cache/huggingface")
+  log "mounting HuggingFace cache: $HF_HOME_DIR (token + model cache shared)"
+fi
+HF_TOKEN_FLAGS=()
+HF_AUTH_TOKEN="${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}"
+if [[ -z "$HF_AUTH_TOKEN" ]]; then
+  for _hf_tok_file in "$HF_HOME_DIR/token" "$HOME/.huggingface/token"; do
+    if [[ -f "$_hf_tok_file" ]]; then
+      HF_AUTH_TOKEN="$(tr -d '[:space:]' < "$_hf_tok_file")"
+      [[ -n "$HF_AUTH_TOKEN" ]] && break
+    fi
+  done
+fi
+if [[ -n "$HF_AUTH_TOKEN" ]]; then
+  export HF_TOKEN="$HF_AUTH_TOKEN"
+  HF_TOKEN_FLAGS=(-e HF_TOKEN)
+  log "HuggingFace token detected — propagating to container as HF_TOKEN"
+elif [[ ${#HF_CACHE_MOUNT[@]} -eq 0 ]]; then
+  log "no HuggingFace auth/cache on host — gated models may be unavailable (run: huggingface-cli login)"
+fi
+
 # --- TERM/COLORTERM 伝播 ---
 # 未設定だと Docker が TERM=dumb を渡し、Claude Code の Ink TUI が描画されない。
 TERM_ENV=(-e "TERM=${TERM:-xterm-256color}")
@@ -273,6 +307,8 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
     "${SYMLINK_MOUNTS[@]}" \
     "${TERM_ENV[@]}" \
     "${GH_TOKEN_FLAGS[@]}" \
+    "${HF_TOKEN_FLAGS[@]}" \
+    "${HF_CACHE_MOUNT[@]}" \
     -e "REPORT_LANG=$REPORT_LANG" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$REPO_NAME" \
@@ -322,6 +358,8 @@ docker_cmd_for() {
     "${SYMLINK_MOUNTS[@]}" \
     "${TERM_ENV[@]}" \
     "${GH_TOKEN_FLAGS[@]}" \
+    "${HF_TOKEN_FLAGS[@]}" \
+    "${HF_CACHE_MOUNT[@]}" \
     -e "REPORT_LANG=$REPORT_LANG" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$name" \

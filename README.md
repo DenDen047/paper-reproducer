@@ -7,7 +7,7 @@
 💡 *Turn a computer vision paper repository into a Pixi-locked environment, retry log, and audit-ready report.*
 
 <p align="center">
-  <a href="README.ja.md">Japanese</a> ·
+  <a href="README.ja.md">日本語</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="#example-output">Example Output</a> ·
   <a href="#commercial-boundary">Commercial Boundary</a>

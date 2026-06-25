@@ -5,6 +5,41 @@
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-06-25
+
+### Added — ライセンスゲート資産 (SMPL/SMAL 系) の手動 provisioning 機構
+
+SMPL / SMPL-X / SMPL+H / MANO / FLAME / STAR / SMAL など MPI (Michael Black ラボ)
+製のパラメトリックモデルは、ライセンス登録が必須で HuggingFace のようなトークン
+自動 DL も GitHub 取得もできず、依存する論文で再現が Phase 3 手前で止まっていた。
+ユーザーが一度だけ手作業で用意すれば、以後それらに依存する全論文の再現が自動で
+進むようにする (HF/gh 伝播と同じ「本人アクセスの引き継ぎ」であり、license bypass や
+再配布ではない)。
+
+- **手動資産レジストリ**: `MANUAL_ASSETS_DIR` (既定はプロジェクト内 `<repo>/manual-assets`、
+  `.gitignore` 済み) を `/manual-assets` に read-only マウント。正本は
+  `paper-reproduce-skills/registry/{manifest.json,ASSETS.md}` (MPI 本体 7 種を seed)。
+- **`bootstrap.sh`**: HF cache と同型の伝播を追加。
+  - `MANUAL_ASSETS_DIR` を解決し、存在すれば単一・バッチ両モードの `docker run` に
+    `:ro` マウント。
+  - 起動時に未作成/欠落を検知すると、取得 URL と正確な配置先を含む構造化案内を表示
+    (graceful: 未配置でも続行)。`--list-assets` でいつでも状態確認。
+- **検出 (repo-analyzer Step 7.7)**: import / config / 命名 / README から手動資産依存を
+  検出し `analysis.json.manual_assets[]` に出力 (専用配列、`schemas/analysis.schema.json`
+  に追加)。必須資産が欠落なら feasibility=degraded + blocker `manual_asset_missing`。
+- **自動配置 (新スキル `manual-asset-provisioner`, reimplement Phase 3 Step 1.0)**:
+  レジストリに在れば repo 期待パスへコピー + `.gitignore` 追記 (git/成功アーカイブへの
+  混入を防止)、無ければ取得 URL を `next_actions` に記録して NEVER STOP で続行。
+  自動 DL / ミラー取得は MUST NOT。ヘルパー `scripts/provision_manual_assets.py`。
+
+### Implications
+
+- 効かせるには各モデルサイトでライセンス登録・DL し `<repo>/manual-assets/` へ配置
+  (詳細は `registry/ASSETS.md`)。未配置でも従来どおり処理は続行する。
+- 配置物は非商用研究ライセンスに従う第三者資産であり、git にもアーカイブにも入らない。
+- 新規 registry/scripts/skills は `COPY . /paper-reproduce-skills` で自動同梱されるため、
+  この変更を反映するにはイメージ再ビルド (`--rebuild`) が必要。
+
 ## [0.1.5] - 2026-05-27
 
 ### Added — host の HuggingFace 認証 / キャッシュをコンテナへ伝播

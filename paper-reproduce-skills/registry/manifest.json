@@ -1,0 +1,121 @@
+{
+  "schema": "paper-reproducer manual-asset registry manifest",
+  "version": 1,
+  "note": "License-gated assets that require manual registration/download (e.g. MPI / Michael Black lab parametric models). paper-reproducer NEVER downloads, bundles, mirrors, or redistributes these — the user provisions them under their own license into the host registry. See ASSETS.md.",
+  "registry_env": "MANUAL_ASSETS_DIR",
+  "registry_default": "<repo>/manual-assets (gitignored, project-local)",
+  "container_mount": "/manual-assets",
+  "assets": [
+    {
+      "key": "smpl",
+      "display_name": "SMPL",
+      "kind": "body",
+      "source_url": "https://smpl.is.tue.mpg.de/",
+      "license": "SMPL Model License — non-commercial scientific research only",
+      "license_url": "https://smpl.is.tue.mpg.de/modellicense.html",
+      "canonical_files": [
+        "smpl/SMPL_NEUTRAL.pkl",
+        "smpl/SMPL_MALE.pkl",
+        "smpl/SMPL_FEMALE.pkl"
+      ],
+      "filename_globs": ["SMPL_*.pkl", "basicModel_*_lbs_*.pkl", "basicmodel_*_lbs_*.pkl"],
+      "detect_aliases": ["import smpl", "from smpl", "SMPL_NEUTRAL", "basicModel_", "basicmodel_", "smpl_model_path", "SMPL_MODEL_DIR", "model_type='smpl'", "model_type=\"smpl\""],
+      "common_repo_paths": ["data/smpl", "smpl/models", "models/smpl", "body_models/smpl", "data/smpl_models", "smplx/models/smpl"]
+    },
+    {
+      "key": "smplx",
+      "display_name": "SMPL-X",
+      "kind": "body+hands+face",
+      "source_url": "https://smpl-x.is.tue.mpg.de/",
+      "license": "SMPL-X Model License — non-commercial scientific research only",
+      "license_url": "https://smpl-x.is.tue.mpg.de/modellicense.html",
+      "canonical_files": [
+        "smplx/SMPLX_NEUTRAL.npz",
+        "smplx/SMPLX_MALE.npz",
+        "smplx/SMPLX_FEMALE.npz"
+      ],
+      "filename_globs": ["SMPLX_*.npz", "SMPLX_*.pkl"],
+      "detect_aliases": ["import smplx", "from smplx", "SMPLX_NEUTRAL", "model_type='smplx'", "model_type=\"smplx\"", "model_folder", "body_model", "smplx.create"],
+      "common_repo_paths": ["data/smplx", "models/smplx", "body_models/smplx", "data/body_models/smplx", "smplx/models/smplx"]
+    },
+    {
+      "key": "smplh",
+      "display_name": "SMPL+H",
+      "kind": "body+hands",
+      "source_url": "https://mano.is.tue.mpg.de/",
+      "license": "SMPL+H Model License — non-commercial scientific research only",
+      "license_url": "https://mano.is.tue.mpg.de/license.html",
+      "canonical_files": [
+        "smplh/SMPLH_NEUTRAL.npz",
+        "smplh/SMPLH_MALE.pkl",
+        "smplh/SMPLH_FEMALE.pkl"
+      ],
+      "filename_globs": ["SMPLH_*.npz", "SMPLH_*.pkl"],
+      "detect_aliases": ["SMPLH_", "model_type='smplh'", "model_type=\"smplh\"", "smplh", "mano_v1_2"],
+      "common_repo_paths": ["data/smplh", "models/smplh", "body_models/smplh", "data/body_models/smplh"]
+    },
+    {
+      "key": "mano",
+      "display_name": "MANO",
+      "kind": "hands",
+      "source_url": "https://mano.is.tue.mpg.de/",
+      "license": "MANO Model License — non-commercial scientific research only",
+      "license_url": "https://mano.is.tue.mpg.de/license.html",
+      "canonical_files": [
+        "mano/MANO_LEFT.pkl",
+        "mano/MANO_RIGHT.pkl"
+      ],
+      "filename_globs": ["MANO_*.pkl"],
+      "detect_aliases": ["import mano", "manopth", "MANO_RIGHT", "MANO_LEFT", "mano_model", "model_type='mano'", "model_type=\"mano\""],
+      "common_repo_paths": ["data/mano", "models/mano", "mano/models", "body_models/mano", "manopth/mano/models"]
+    },
+    {
+      "key": "flame",
+      "display_name": "FLAME",
+      "kind": "head+face",
+      "source_url": "https://flame.is.tue.mpg.de/",
+      "license": "FLAME Model License — non-commercial scientific research only",
+      "license_url": "https://flame.is.tue.mpg.de/modellicense.html",
+      "canonical_files": [
+        "flame/generic_model.pkl",
+        "flame/female_model.pkl",
+        "flame/male_model.pkl"
+      ],
+      "filename_globs": ["generic_model.pkl", "*_model.pkl", "FLAME2020*"],
+      "detect_aliases": ["import flame", "FLAME2020", "flame_model_path", "flamelayer", "generic_model.pkl", "model_type='flame'"],
+      "common_repo_paths": ["data/flame", "models/flame", "flame/model", "data/FLAME2020"]
+    },
+    {
+      "key": "star",
+      "display_name": "STAR",
+      "kind": "body",
+      "source_url": "https://star.is.tue.mpg.de/",
+      "license": "STAR Model License — non-commercial scientific research only",
+      "license_url": "https://star.is.tue.mpg.de/license.html",
+      "canonical_files": [
+        "star/neutral.npz",
+        "star/male.npz",
+        "star/female.npz"
+      ],
+      "filename_globs": ["star_*.npz"],
+      "detect_aliases": ["import star", "from star", "STAR_PATH", "star_1_1", "model_type='star'"],
+      "common_repo_paths": ["data/star", "models/star", "star_1_1"]
+    },
+    {
+      "key": "smal",
+      "display_name": "SMAL",
+      "kind": "animal",
+      "source_url": "https://smal.is.tue.mpg.de/",
+      "license": "SMAL Model License — non-commercial scientific research only",
+      "license_url": "https://smal.is.tue.mpg.de/license.html",
+      "canonical_files": [
+        "smal/smal_CVPR2017.pkl",
+        "smal/smal_CVPR2017_data.pkl",
+        "smal/symIdx.pkl"
+      ],
+      "filename_globs": ["smal_*.pkl", "smal_CVPR2017*.pkl"],
+      "detect_aliases": ["import smal", "from smal", "smal_CVPR2017", "smal_model_path", "SMAL_DATA", "model_type='smal'"],
+      "common_repo_paths": ["data/smal", "smal/models", "models/smal", "data/smal_models", "data/smpl_models"]
+    }
+  ]
+}

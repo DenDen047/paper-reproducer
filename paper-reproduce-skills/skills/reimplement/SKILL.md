@@ -123,6 +123,14 @@ check-jsonschema --schemafile /paper-reproduce-skills/schemas/analysis.schema.js
 
 **詳細**: `skills/experiment-loop/SKILL.md` 参照。
 
+### Step 1.0: 手動 provisioning 資産の配置 (manual-asset-provisioner)
+
+データ DL より**先に**、`analysis.json.manual_assets[]`（SMPL/SMAL 系などライセンス登録必須で自動 DL 不可の資産）を `/manual-assets`（read-only マウント）から repo 期待パスへ配置する。**詳細**: `skills/manual-asset-provisioner/SKILL.md` 参照。
+
+- `manual_assets` 空 / 無し → skip。
+- present（レジストリに在り）→ `repo_expected_path` へコピー + `.gitignore` 追記し続行。**配置物は git / 成功アーカイブに絶対に入れない**（ライセンス上の再配布禁止。Phase 4 の `git archive HEAD` は tracked-only なので `.gitignore` で保証）。
+- missing → `next_actions` に取得 URL + 配置先を記録し、`required_for_claims` 非空なら `errors[]` に `manual_asset_missing` を追加。**Phase 3/3.5 は止めない**（NEVER STOP）。**自動 DL / ミラー取得は MUST NOT**。
+
 ### Step 1: モデル・データダウンロード (統合)
 
 `analysis.json.model_download` (重み) と `analysis.json.data_acquisition_table[]` (dataset) を一緒に取得する。

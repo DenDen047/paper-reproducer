@@ -235,6 +235,7 @@ pixi.toml / コマンド引数 / env var の変更で直る。
 | GDrive レート制限 | `"but Gdown can't"` + `"domain administrator"` / `"too many users"` | tier3 (24h cooldown 必要)。**ただし `required_for_claims` 非空なら ScheduleWakeup で N 時間後に再試行を schedule** |
 | HF gated repo | `401 Unauthorized` / `Repository not found` 系 | tier3 (`gated` カテゴリ、`next_actions` に手動認証手順)。試行は HfApi.repo_info で 1 回必須 |
 | 認証必要 | `403` / login redirect | tier3 (`gated`)、試行 1 回必須 |
+| 手動資産がレジストリに欠落 (SMPL/SMAL 系) | `/manual-assets/<candidate>` 不在 (provision_manual_assets.py が `missing_in_registry`) | tier3。**probe・自動 DL はしない**（トークンで解けず再配布禁止）。`next_actions` に取得 URL + 配置先。`required_for_claims` 空 → status=success 維持 / 非空 → `errors` に `manual_asset_missing` 追加し partial 候補（他経路で当該 claim を eval 可能なら維持）。詳細は `skills/manual-asset-provisioner/SKILL.md` |
 
 **MUST NOT** (v0.1.1 regression 教訓):
 - `data_acquisition_table[i].category` の draft 値だけを見て tier3 と判定する (= 試行ゼロで諦める)

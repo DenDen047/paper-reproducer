@@ -100,6 +100,29 @@
           }
         }
       }
+    },
+
+    "manual_assets": {
+      "type": "array",
+      "description": "ライセンス登録が必須で自動 DL できない手動 provisioning 資産 (SMPL/SMAL 系等)。repo-analyzer Step 7.7 で検出し、Phase 3 が /manual-assets から repo 期待パスへ配置する。dataset とは別アセットクラス。",
+      "items": {
+        "type": "object",
+        "required": ["display_name", "repo_expected_path", "required_for_claims"],
+        "properties": {
+          "key":                 { "type": ["string", "null"] },
+          "display_name":        { "type": "string", "minLength": 1 },
+          "repo_expected_path":  { "type": "string", "minLength": 1 },
+          "registry_candidate":  { "type": ["string", "null"] },
+          "source_url":          { "type": ["string", "null"] },
+          "license_url":         { "type": ["string", "null"] },
+          "present_in_registry": { "type": ["boolean", "null"] },
+          "detection_evidence":  { "type": ["string", "null"] },
+          "required_for_claims": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
     }
   },
 

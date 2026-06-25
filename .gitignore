@@ -2,3 +2,5 @@ docs/*
 !docs/
 !docs/logo.png
 local/
+# license-gated assets (SMPL/SMAL 系等): 第三者の非商用研究ライセンス。git に入れない
+manual-assets/

@@ -125,6 +125,18 @@ Pass multiple URLs or a file of URLs to launch parallel jobs in `tmux`.
 
 In GPU environments, batch mode assigns free GPUs with `--gpus device=N` and `flock` so one GPU slot is used by one job at a time.
 
+## License-Gated Assets (SMPL, SMAL, ...)
+
+Some CV papers depend on parametric models — SMPL, SMPL-X, SMPL+H, MANO, FLAME, STAR, SMAL — from the Max Planck Institute (Michael Black lab) that require accepting a per-model license and **cannot be downloaded automatically** (no token-based fetch, unlike HuggingFace).
+
+`paper-reproducer` never downloads, bundles, mirrors, or redistributes these. You provision them once by hand:
+
+1. Register and download each model you need from its site (links and layout in [`paper-reproduce-skills/registry/ASSETS.md`](paper-reproduce-skills/registry/ASSETS.md)).
+2. Place them under `manual-assets/` in the repo (gitignored; override with `MANUAL_ASSETS_DIR`).
+3. Run `./bootstrap.sh <repo>` as usual — `/reimplement` detects what the repo needs and copies the right files into place. Placed files are gitignored and never enter the success archive.
+
+Check status anytime with `./bootstrap.sh --list-assets`. Missing assets never block a run; the report records exactly what to download and where to put it. Use of these models is governed by their non-commercial research licenses; compliance is the user's responsibility.
+
 ## CLI Reference
 
 <!-- AUTO-GENERATED: bootstrap.sh usage() is the source of truth -->
@@ -135,11 +147,13 @@ In GPU environments, batch mode assigns free GPUs with `--gpus device=N` and `fl
 | `--rebuild` | Force Docker image rebuild |
 | `--fresh` | Remove existing clones and clone again |
 | `--lang <code>` | Report language: `ja` or `en` |
+| `--list-assets` | Show manual-asset registry status (license-gated models) and exit |
 | `-h`, `--help` | Show help |
 
 | Environment variable | Purpose |
 |---|---|
 | `WORKSPACE_DIR` | Host clone directory, default `~/paper-reproduce-workspaces` |
+| `MANUAL_ASSETS_DIR` | Dir for license-gated assets (SMPL/SMAL, ...), default `./manual-assets` (gitignored) |
 | `REPORT_LANG` | Same as `--lang`; overridden by `--lang` |
 
 <!-- /AUTO-GENERATED -->

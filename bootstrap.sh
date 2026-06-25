@@ -21,11 +21,17 @@ DOCKERFILE_DIR="$SCRIPT_DIR/paper-reproduce-skills"
 IMAGE_NAME="${IMAGE_NAME:-paper-reproduce}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-$HOME/paper-reproduce-workspaces}"
 PIXI_CACHE_VOLUME="${PIXI_CACHE_VOLUME:-paper-reproduce-pixi-cache}"
+# ライセンス登録が必須で自動 DL できない手動資産 (SMPL/SMAL 系等) の置き場。
+# 既定はプロジェクト内で完結する <repo>/manual-assets (.gitignore 済み: ライセンス
+# ファイルを git/イメージに入れないため)。存在すれば /manual-assets に read-only
+# マウントする (registry/ASSETS.md 参照)。MANUAL_ASSETS_DIR で別パスに変更可。
+MANUAL_ASSETS_DIR="${MANUAL_ASSETS_DIR:-$SCRIPT_DIR/manual-assets}"
 
 REBUILD=0
 FRESH=0
 REPOS_FILE=""
 URLS=()
+LIST_ASSETS=0
 REPORT_LANG="${REPORT_LANG:-ja}"
 
 usage() {
@@ -42,10 +48,12 @@ Options:
   --rebuild          Force Docker image rebuild
   --fresh            Re-clone over existing clones
   --lang <code>      Report output language: ja (default) | en
+  --list-assets      Show manual-asset registry status (license-gated models) and exit
   -h, --help         Show this help
 
 Environment:
   WORKSPACE_DIR      Host clone dir (default: ~/paper-reproduce-workspaces)
+  MANUAL_ASSETS_DIR  License-gated asset dir (default: ./manual-assets, gitignored)
   REPORT_LANG        Same as --lang (default: ja); overridden by --lang
 
 Examples:
@@ -73,6 +81,7 @@ while [[ $# -gt 0 ]]; do
       REPORT_LANG="$2"; shift 2 ;;
     --lang=*)
       REPORT_LANG="${1#*=}"; shift ;;
+    --list-assets) LIST_ASSETS=1; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; break ;;
     -*) die "unknown option: $1 (see --help)" ;;
@@ -92,6 +101,18 @@ if [[ -n "$REPOS_FILE" ]]; then
     [[ -z "$line" ]] && continue
     URLS+=("$line")
   done < "$REPOS_FILE"
+fi
+
+MANUAL_ASSETS_SCRIPT="$DOCKERFILE_DIR/scripts/provision_manual_assets.py"
+MANUAL_ASSETS_MANIFEST="$DOCKERFILE_DIR/registry/manifest.json"
+
+# --list-assets: レジストリ状態を表示して終了 (URL 不要)
+if [[ "$LIST_ASSETS" == "1" ]]; then
+  command -v python3 >/dev/null 2>&1 || die "python3 not found on PATH (required for --list-assets)"
+  python3 "$MANUAL_ASSETS_SCRIPT" inventory \
+    --root "$MANUAL_ASSETS_DIR" --manifest "$MANUAL_ASSETS_MANIFEST" \
+    --lang "${REPORT_LANG:-ja}" --list
+  exit 0
 fi
 
 if [[ ${#URLS[@]} -eq 0 ]]; then
@@ -236,6 +257,25 @@ elif [[ ${#HF_CACHE_MOUNT[@]} -eq 0 ]]; then
   log "no HuggingFace auth/cache on host — gated models may be unavailable (run: huggingface-cli login)"
 fi
 
+# --- 手動 provisioning 資産レジストリのマウント + 初回案内 ---
+# SMPL/SMAL 系のようにライセンス登録が必須で自動 DL できない資産は、ユーザーが
+# 一度だけ手作業で $MANUAL_ASSETS_DIR に置けば、コンテナ内の /reimplement が
+# repo の期待パスへ自動配置する。ここでは (1) 存在すれば read-only マウントし、
+# (2) 未作成/欠落があれば取得 URL 付きの案内を出す (graceful、未配置でも続行)。
+# bootstrap 時点では対象 repo 未解析なので案内は repo 非依存の一般ヒント;
+# repo 固有の必須判定はコンテナ内 Phase 3 が行う。
+MANUAL_ASSETS_MOUNT=()
+if [[ -d "$MANUAL_ASSETS_DIR" ]]; then
+  MANUAL_ASSETS_MOUNT=(-v "$MANUAL_ASSETS_DIR:/manual-assets:ro")
+fi
+if [[ -f "$MANUAL_ASSETS_SCRIPT" ]]; then
+  # 完備なら 1 行、未作成/一部欠落なら取得 URL 付きの構造化ブロックを出す。
+  python3 "$MANUAL_ASSETS_SCRIPT" inventory \
+    --root "$MANUAL_ASSETS_DIR" --manifest "$MANUAL_ASSETS_MANIFEST" \
+    --lang "$REPORT_LANG" 2>/dev/null \
+    | while IFS= read -r _line; do log "$_line"; done || true
+fi
+
 # --- TERM/COLORTERM 伝播 ---
 # 未設定だと Docker が TERM=dumb を渡し、Claude Code の Ink TUI が描画されない。
 TERM_ENV=(-e "TERM=${TERM:-xterm-256color}")
@@ -309,6 +349,7 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
     "${GH_TOKEN_FLAGS[@]}" \
     "${HF_TOKEN_FLAGS[@]}" \
     "${HF_CACHE_MOUNT[@]}" \
+    "${MANUAL_ASSETS_MOUNT[@]}" \
     -e "REPORT_LANG=$REPORT_LANG" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$REPO_NAME" \
@@ -360,6 +401,7 @@ docker_cmd_for() {
     "${GH_TOKEN_FLAGS[@]}" \
     "${HF_TOKEN_FLAGS[@]}" \
     "${HF_CACHE_MOUNT[@]}" \
+    "${MANUAL_ASSETS_MOUNT[@]}" \
     -e "REPORT_LANG=$REPORT_LANG" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$name" \

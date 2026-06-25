@@ -375,6 +375,37 @@ grep -niE '^(##|###)\s*(quickstart|quick start|usage|getting started)' README.md
 
 抽出元は `train.py` の `--save_iterations` / `--checkpoint_iterations` 等の default、または README の resume 例。取れなければ各フィールド `null`。
 
+## Step 7.7: 手動 provisioning 資産の検出 (manual_assets)
+
+SMPL/SMAL 系のように **ライセンス登録が必須で自動 DL できない**パラメトリックモデルへの依存を検出し `analysis.json.manual_assets[]` に出力する。これらは `data_acquisition_table` の `gated`（HF login 等トークンで解ける）とは別物で、ユーザーが手作業で用意した資産を Phase 3 が `/manual-assets`（read-only マウント）から repo 期待パスへ配置する。正本の索引は `/paper-reproduce-skills/registry/manifest.json`。
+
+### 検出シグナル（強い順）
+
+```bash
+# import / パッケージ
+grep -rniE 'import (smplx|smpl|mano|smal|star)|from (smplx|smpl|manopth)|manopth|chumpy' --include="*.py" . | head
+grep -niE 'smplx|chumpy|manopth' requirements*.txt environment*.yml pyproject.toml 2>/dev/null | head
+# コード / config 文字列
+grep -rniE "model_folder|model_path|body_model|smpl_model_path|SMPL_MODEL_DIR|model_type\s*=\s*['\"](smpl|smplx|smplh|mano|flame|star|smal)" --include="*.py" --include="*.yaml" --include="*.yml" . | head
+# ファイル参照 / 命名
+grep -rniE 'SMPL_[A-Z]+\.pkl|SMPLX_[A-Z]+\.(npz|pkl)|MANO_(LEFT|RIGHT)\.pkl|basicModel_.*lbs|smal_CVPR2017|generic_model\.pkl' . | head
+# README の取得手順
+grep -niE 'is\.tue\.mpg\.de|download (the )?(SMPL|SMPL-X|MANO|FLAME|SMAL)|register|place .* under (data|models|body_models)' README.md 2>/dev/null | head
+```
+
+### マッピング
+
+各ヒットを manifest の `detect_aliases` / `filename_globs` / `common_repo_paths` と照合し、エントリを埋める:
+
+- `key` / `display_name` / `source_url` / `license_url` → manifest から転記（未知資産で manifest 該当なしなら `key=null`、`source_url` は README から）
+- `repo_expected_path` → repo のコード/README/config が示す具体パス（例: `data/smpl/SMPL_NEUTRAL.pkl`、`body_models/smplx/`）。ディレクトリ指定 (`model_folder='./models'`) なら manifest の正規ファイル名を足した代表 1 ファイルを書く
+- `registry_candidate` → manifest `canonical_files` の対応パス（例: `smpl/SMPL_NEUTRAL.pkl`）
+- `required_for_claims` → この資産が支える `paper_claims[].id` の配列（`data_acquisition_table` と同流儀。空配列 = optional）
+- `present_in_registry` → `/manual-assets/<registry_candidate>` の実在で暫定設定（マウントが無い解析時は `null` 可）
+- `detection_evidence` → 判定根拠 1 行（`"import smplx in demo.py:12; model_folder in configs/demo.yaml:4"`）
+
+手動資産への依存が無ければ `manual_assets` は省略（空配列または未設定）。**probe・自動 DL は行わない**（ライセンス上 MUST NOT。一次アクションは Phase 3 のレジストリ実在チェック）。
+
 ## Step 8: 難易度評価
 
 | 難易度 | 条件 |
@@ -444,7 +475,7 @@ nvcc --version 2>/dev/null | grep -oP 'release \K[0-9.]+'
    - 必須 dataset 集合 (= unique union over claims) を「最小 dataset セット」とする
 2. **判定**:
    - `infeasible`: VRAM 不足かつ CPU fallback 不可 / ディスク不足 / 認証未設定 / **必須 dataset 集合の全エントリが `gated` または `blocked`** (= claim を支える代替 dataset がない)
-   - `degraded`: VRAM 不足だが CPU fallback 可 / URL 到達性のみ警告 / `gpu_arch_incompatible.detected=true`（推奨アップグレードパスあり）/ **必須 dataset の一部が `gated` / `blocked` だが他で代替可能、または optional dataset のみ落ちる**
+   - `degraded`: VRAM 不足だが CPU fallback 可 / URL 到達性のみ警告 / `gpu_arch_incompatible.detected=true`（推奨アップグレードパスあり）/ **必須 dataset の一部が `gated` / `blocked` だが他で代替可能、または optional dataset のみ落ちる** / **必須の `manual_assets` がレジストリに欠落（`present_in_registry=false` かつ `required_for_claims` 非空）** — `blockers[]` に `{id:"manual_asset_missing", recovery:<source_url>}` を追加。ユーザーが用意し再実行すれば解決可能なので `infeasible` にはしない
    - `ok`: 上記に非該当 (必須 dataset は全て `bundled` / `auto-fetch` / `assisted` で reachable)
 
 「必須 claim 用 dataset が全部 `blocked`」は infeasible、「optional だけ落ちる」は ok を維持、というのが粗さ解消の核。

@@ -129,6 +129,18 @@ flowchart TD
 
 GPU環境では、空いているGPUを `--gpus device=N` で割り当て、`flock` により1つのGPUスロットを1ジョブだけが使うようにします。
 
+## ライセンスゲート資産 (SMPL, SMAL, ...)
+
+一部のCV論文は、Max Planck Institute（Michael Black ラボ）製のパラメトリックモデル — SMPL / SMPL-X / SMPL+H / MANO / FLAME / STAR / SMAL — に依存します。これらは各モデルのライセンス同意が必須で、**自動ダウンロードできません**（HuggingFace のようなトークン取得も不可）。
+
+`paper-reproducer` はこれらをダウンロード・同梱・ミラー・再配布しません。**一度だけ手作業で**用意します:
+
+1. 必要なモデルを各サイトで登録・DL（取得元と配置レイアウトは [`paper-reproduce-skills/registry/ASSETS.md`](paper-reproduce-skills/registry/ASSETS.md)）。
+2. リポジトリ直下の `manual-assets/`（`.gitignore` 済み、`MANUAL_ASSETS_DIR` で変更可）に配置。
+3. いつも通り `./bootstrap.sh <repo>` を実行 — `/reimplement` が repo の必要モデルを検出し、適切なパスへ自動コピーします。配置物は `.gitignore` 済みで成功アーカイブにも入りません。
+
+状態確認は `./bootstrap.sh --list-assets`。未配置でも処理は止まらず、何をどこへ DL すべきかをレポートに記録します。これらのモデルの利用は非商用研究ライセンスに従い、遵守は利用者の責任です。
+
 ## CLI Reference
 
 <!-- AUTO-GENERATED: bootstrap.sh usage() is the source of truth -->
@@ -139,11 +151,13 @@ GPU環境では、空いているGPUを `--gpus device=N` で割り当て、`flo
 | `--rebuild` | Docker image を強制再ビルド |
 | `--fresh` | 既存cloneを削除して再clone |
 | `--lang <code>` | レポート言語: `ja` または `en` |
+| `--list-assets` | 手動資産レジストリ（ライセンスゲートモデル）の状態を表示して終了 |
 | `-h`, `--help` | ヘルプ表示 |
 
 | 環境変数 | 役割 |
 |---|---|
 | `WORKSPACE_DIR` | clone先。デフォルトは `~/paper-reproduce-workspaces` |
+| `MANUAL_ASSETS_DIR` | ライセンスゲート資産(SMPL/SMAL 等)の置き場。デフォルトは `./manual-assets`(gitignore 済み) |
 | `REPORT_LANG` | `--lang` と同じ。`--lang` が優先 |
 
 <!-- /AUTO-GENERATED -->

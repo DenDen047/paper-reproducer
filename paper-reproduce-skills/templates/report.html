@@ -603,7 +603,42 @@ document.querySelectorAll('pre').forEach(function(pre) {
           (gltf) => {
             applyCoordConvention(gltf.scene, el.dataset.coordConvention);
             scene.add(gltf.scene);
+            // armature を持つ glb は骨格を可視化し、メッシュを半透明にして内部のリグ構造を
+            // 透かして見せる (テクスチャは残す)。ボーンの無い通常メッシュは従来どおり不透明。
+            const bones = [];
+            gltf.scene.traverse(o => { if (o.isBone) bones.push(o); });
+            if (bones.length > 0) {
+              gltf.scene.traverse(o => {
+                if (!o.isMesh) return;
+                (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => {
+                  if (m) { m.transparent = true; m.opacity = 0.45; m.depthWrite = false; }
+                });
+              });
+              // 骨格線 (SkeletonHelper は既定で depthTest 無効 → メッシュを貫通して常に見える)。
+              // matrix が gltf.scene.matrixWorld を参照するため autoFit の再センタリングに追従する。
+              const skel = new THREE.SkeletonHelper(gltf.scene);
+              skel.renderOrder = 10;
+              scene.add(skel);
+            }
             autoFit(gltf.scene, camera, controls);
+            // 関節マーカーは autoFit の後に配置する。autoFit は gltf.scene.position を
+            // 再センタリング (position.sub(center)) するため、先に world 座標で置くと
+            // メッシュ/骨格だけ動いてマーカーが取り残されズレる。再センタリング後の
+            // world 座標を updateWorldMatrix で確定させてから各ボーン位置に球を置く。
+            if (bones.length > 0) {
+              gltf.scene.updateWorldMatrix(true, true);
+              const jr = new THREE.Box3().setFromObject(gltf.scene).getSize(new THREE.Vector3()).length() * 0.012;
+              const jGeo = new THREE.SphereGeometry(jr, 12, 12);
+              const jMat = new THREE.MeshBasicMaterial({ color: 0xffcc00, depthTest: false, transparent: true });
+              const wp = new THREE.Vector3();
+              bones.forEach(b => {
+                const s = new THREE.Mesh(jGeo, jMat);
+                b.getWorldPosition(wp);
+                s.position.copy(wp);
+                s.renderOrder = 11;
+                scene.add(s);
+              });
+            }
           },
           undefined,
           onError

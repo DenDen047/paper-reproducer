@@ -173,11 +173,33 @@ def _add_to_gitignore(dest_rel):
         f.write(prefix + dest_rel + "\n")
 
 
+def _is_under(path, base):
+    """True if realpath(path) is inside realpath(base)."""
+    real = os.path.realpath(path)
+    base_real = os.path.realpath(base)
+    return real == base_real or real.startswith(base_real + os.sep)
+
+
 def cmd_place(args):
     root = _expand(args.root)
     src = os.path.join(root, args.src)
     dest = args.dest
     result = {"asset": args.asset, "src": args.src, "dest": dest}
+    cwd = os.path.abspath(os.getcwd())
+    abs_dest = os.path.abspath(dest)
+
+    # --src is registry-relative and --dest repo-relative by contract; reject
+    # anything that escapes those roots (absolute paths, ../, symlink tricks).
+    if os.path.isabs(args.src) or not _is_under(src, root):
+        result["status"] = "invalid_path"
+        result["reason"] = "src escapes registry root {}".format(root)
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
+    if not _is_under(abs_dest, cwd):
+        result["status"] = "invalid_path"
+        result["reason"] = "dest escapes repo root {}".format(cwd)
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
 
     if not os.path.isfile(src):
         result["status"] = "missing_in_registry"
@@ -187,25 +209,31 @@ def cmd_place(args):
         print(json.dumps(result, ensure_ascii=False))
         return 0
 
-    dest_dir = os.path.dirname(os.path.abspath(dest))
+    dest_dir = os.path.dirname(abs_dest)
     if dest_dir:
         os.makedirs(dest_dir, exist_ok=True)
-    shutil.copy2(src, dest)
-    size = os.path.getsize(dest)
-    if size == 0:
+    # Copy via tmp + rename so an interrupted copy never leaves a truncated
+    # file at dest, then verify the byte count actually matches the source.
+    src_size = os.path.getsize(src)
+    tmp = abs_dest + ".tmp-provision"
+    shutil.copy2(src, tmp)
+    if os.path.getsize(tmp) != src_size:
+        os.remove(tmp)
+        result["status"] = "copy_size_mismatch"
+        result["expected_bytes"] = src_size
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
+    os.replace(tmp, abs_dest)
+    if src_size == 0:
         result["status"] = "placed_empty"
         result["bytes"] = 0
         print(json.dumps(result, ensure_ascii=False))
         return 0
 
-    # Record in .gitignore only when dest lives inside the repo (CWD).
-    cwd = os.path.abspath(os.getcwd())
-    abs_dest = os.path.abspath(dest)
-    if abs_dest.startswith(cwd + os.sep):
-        _add_to_gitignore(os.path.relpath(abs_dest, cwd))
-        result["gitignored"] = True
+    _add_to_gitignore(os.path.relpath(abs_dest, cwd))
+    result["gitignored"] = True
     result["status"] = "placed"
-    result["bytes"] = size
+    result["bytes"] = src_size
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

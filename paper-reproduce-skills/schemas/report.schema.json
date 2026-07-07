@@ -4,10 +4,14 @@
   "title": "report.json (Phase 4 Step 2 出力)",
   "description": "重要な invariant のみを enforce。新規フィールド追加は許可。",
   "type": "object",
-  "required": ["repo_name", "status", "samples"],
+  "required": ["repo_name", "status", "reproduce_level", "samples", "claims_verification", "next_actions"],
   "properties": {
     "repo_name": { "type": "string", "minLength": 1 },
     "status":    { "enum": ["success", "partial", "failed"] },
+    "reproduce_level": {
+      "description": "実行された再現の範囲。inference の success は claim 検証を含意しない (SKILL.md REPRODUCE_LEVEL 参照)。",
+      "enum": ["inference", "full"]
+    },
     "failure_headline":       { "type": ["string", "null"] },
     "failure_recoverability": { "enum": ["fixable", "hardware", "blocked", null] },
 
@@ -32,6 +36,7 @@
 
     "claims_verification": {
       "type": "array",
+      "description": "常に必須 (paper_claims=[] で Phase 3.5 未起動なら空配列)。scripts/check_claims.py の results[] を転記する。",
       "items": {
         "type": "object",
         "required": ["metric_name", "paper_target", "status"],
@@ -44,6 +49,54 @@
           "status":        { "enum": ["matched", "within_tolerance", "missed", "not_evaluated"] },
           "claim_source":  { "type": "string" },
           "evidence_path": { "type": ["string", "null"] }
+        },
+        "allOf": [
+          {
+            "description": "P0-C 対称ガード: 再現成功 (matched / within_tolerance) を名乗る行は観測値と根拠ファイルが非 null 必須。根拠なしの成功判定はゲートを通さない。",
+            "if": {
+              "properties": { "status": { "enum": ["matched", "within_tolerance"] } },
+              "required": ["status"]
+            },
+            "then": {
+              "required": ["observed", "evidence_path"],
+              "properties": {
+                "observed":      { "type": "number" },
+                "evidence_path": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        ]
+      }
+    },
+
+    "errors": {
+      "type": "array",
+      "description": "experiment-loop の正規形 {id, phase, summary, tier}。",
+      "items": {
+        "type": "object",
+        "required": ["id", "summary"],
+        "properties": {
+          "id":      { "type": "string", "minLength": 1 },
+          "phase":   { "type": "string" },
+          "summary": { "type": "string", "minLength": 1 },
+          "tier":    { "type": "string" }
+        }
+      }
+    },
+
+    "next_actions": {
+      "type": "array",
+      "description": "常に必須 (空配列可)。Phase 4 Step 1.7 のスキーマを enforce。",
+      "items": {
+        "type": "object",
+        "required": ["priority", "effort", "cost", "action", "reason"],
+        "properties": {
+          "priority": { "enum": ["high", "medium", "low"] },
+          "effort":   { "enum": ["low", "medium", "high"] },
+          "cost":     { "enum": ["free", "gpu_upgrade", "paid_api", "external_data"] },
+          "action":   { "type": "string", "minLength": 1 },
+          "reason":   { "type": "string", "minLength": 1 },
+          "command":  { "type": ["string", "null"] }
         }
       }
     }

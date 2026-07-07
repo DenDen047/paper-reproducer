@@ -10,6 +10,49 @@
     "repo_url":   { "type": "string", "minLength": 1 },
     "github_slug": { "type": ["string", "null"] },
 
+    "dep_type": {
+      "description": "repo-analyzer Step 4 の 6-Type 判定 (A > C > B > E > D > F)。",
+      "enum": ["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3",
+               "D1", "D2", "D3", "E1", "E2", "E3", "F"]
+    },
+
+    "pixi_strategy": {
+      "type": "object",
+      "description": "Phase 2 (pixi-env-builder) が読む環境構築戦略。torch_source は Step 5 で判定。",
+      "properties": {
+        "defaults_channel_present": { "type": "boolean" },
+        "torch_source": { "enum": ["pypi_wheel", "conda_pytorch", null] }
+      }
+    },
+
+    "dep_files_found": {
+      "type": "object",
+      "description": "repo-analyzer Step 1 で検出した依存ファイルのパス一覧 (種類別)。cuda-dependency-resolver の条件付き Known issue が参照する。",
+      "properties": {
+        "environment_yml":  { "type": "array", "items": { "type": "string" } },
+        "requirements_txt": { "type": "array", "items": { "type": "string" } },
+        "pyproject_toml":   { "type": "array", "items": { "type": "string" } },
+        "setup_py":         { "type": "array", "items": { "type": "string" } },
+        "dockerfile":       { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "demo_commands": {
+      "type": "array",
+      "description": "repo-analyzer Step 6 で特定したデモ/推論コマンド (実行順の候補)。usage-documenter / dep-converter が参照する。",
+      "items": { "type": "string", "minLength": 1 }
+    },
+
+    "model_download": {
+      "type": ["object", "null"],
+      "description": "repo-analyzer Step 7 で検出した重み取得方法。Phase 3 Step 1 が参照する。",
+      "properties": {
+        "method": { "enum": ["wget", "curl", "gdown", "huggingface_hub", "custom_script", "none"] },
+        "urls":   { "type": "array", "items": { "type": "string" } },
+        "notes":  { "type": ["string", "null"] }
+      }
+    },
+
     "feasibility": {
       "type": "object",
       "required": ["status", "blockers"],

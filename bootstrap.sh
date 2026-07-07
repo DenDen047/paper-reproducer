@@ -21,11 +21,16 @@ DOCKERFILE_DIR="$SCRIPT_DIR/paper-reproduce-skills"
 IMAGE_NAME="${IMAGE_NAME:-paper-reproduce}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-$HOME/paper-reproduce-workspaces}"
 PIXI_CACHE_VOLUME="${PIXI_CACHE_VOLUME:-paper-reproduce-pixi-cache}"
-# ライセンス登録が必須で自動 DL できない手動資産 (SMPL/SMAL 系等) の置き場。
+# ライセンス登録が必須で自動 DL できない手動資産 (SMPL/SMAL 系等) の「正本」置き場。
 # 既定はプロジェクト内で完結する <repo>/manual-assets (.gitignore 済み: ライセンス
-# ファイルを git/イメージに入れないため)。存在すれば /manual-assets に read-only
-# マウントする (registry/ASSETS.md 参照)。MANUAL_ASSETS_DIR で別パスに変更可。
+# ファイルを git/イメージに入れないため)。これを正本として常にここで管理する。
+# 実際にコンテナへマウントするのはこの正本を複製した非暗号 staging (後段参照);
+# 正本が非暗号なら複製は不要でそのままマウントする (registry/ASSETS.md 参照)。
 MANUAL_ASSETS_DIR="${MANUAL_ASSETS_DIR:-$SCRIPT_DIR/manual-assets}"
+# staging の置き場所。$WORKSPACE_DIR 配下は禁止: /workspaces として rw マウント
+# されるため :ro 資産が rw でも見えてしまい、"manual-assets" という名前の repo
+# clone とも衝突する。
+MANUAL_ASSETS_STAGING="${MANUAL_ASSETS_STAGING:-$HOME/.cache/paper-reproduce/manual-assets}"
 
 REBUILD=0
 FRESH=0
@@ -33,6 +38,9 @@ REPOS_FILE=""
 URLS=()
 LIST_ASSETS=0
 REPORT_LANG="${REPORT_LANG:-ja}"
+# 再現レベル: inference (既定) = 推論再現まで / full = 学習 + claim 定量評価まで。
+# claim の抽出・表示はどちらでも行うが、時間のかかる training / eval は full のみ。
+REPRODUCE_LEVEL="${REPRODUCE_LEVEL:-inference}"
 
 usage() {
   cat <<EOF
@@ -47,14 +55,19 @@ Options:
   --repos <file>     Read URLs from file
   --rebuild          Force Docker image rebuild
   --fresh            Re-clone over existing clones
+  --full             Full verification: training + quantitative claim eval
+                     (default is inference-level reproduction only)
   --lang <code>      Report output language: ja (default) | en
   --list-assets      Show manual-asset registry status (license-gated models) and exit
   -h, --help         Show this help
 
 Environment:
-  WORKSPACE_DIR      Host clone dir (default: ~/paper-reproduce-workspaces)
-  MANUAL_ASSETS_DIR  License-gated asset dir (default: ./manual-assets, gitignored)
-  REPORT_LANG        Same as --lang (default: ja); overridden by --lang
+  WORKSPACE_DIR         Host clone dir (default: ~/paper-reproduce-workspaces)
+  MANUAL_ASSETS_DIR     License-gated asset dir (default: ./manual-assets, gitignored)
+  MANUAL_ASSETS_STAGING Non-FUSE staging copy for Docker mount
+                        (default: ~/.cache/paper-reproduce/manual-assets)
+  REPORT_LANG           Same as --lang (default: ja); overridden by --lang
+  REPRODUCE_LEVEL       inference (default) | full; --full sets full
 
 Examples:
   ./bootstrap.sh https://github.com/user/repo.git
@@ -71,6 +84,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --rebuild) REBUILD=1; shift ;;
     --fresh)   FRESH=1; shift ;;
+    --full)    REPRODUCE_LEVEL=full; shift ;;
     --repos)
       [[ $# -ge 2 ]] || die "--repos requires a file argument"
       REPOS_FILE="$2"; shift 2 ;;
@@ -126,6 +140,12 @@ case "$REPORT_LANG" in
 esac
 log "report language: $REPORT_LANG"
 
+case "$REPRODUCE_LEVEL" in
+  inference|full) ;;
+  *) die "unsupported REPRODUCE_LEVEL '$REPRODUCE_LEVEL' (expected: inference | full)" ;;
+esac
+log "reproduce level: $REPRODUCE_LEVEL"
+
 # --- 事前チェック（共通）---
 command -v git     >/dev/null 2>&1 || die "git not found on PATH"
 command -v docker  >/dev/null 2>&1 || die "docker not found on PATH"
@@ -151,13 +171,19 @@ elif [[ "$IMAGE_UID_LABEL" != "${HOST_UID}:${HOST_GID}" ]]; then
 fi
 if [[ "$NEED_BUILD" == "1" ]]; then
   log "building image: $IMAGE_NAME (UID=$HOST_UID GID=$HOST_GID)"
-  # CLAUDE_CODE_BUILD に日付を渡し、--rebuild した日が変われば install.sh の
-  # layer cache が破棄され最新の Claude Code を取り直す (opus[1m] を扱える
-  # ≥2.1.144 を確実に入れるため。Dockerfile 参照)。
+  # CLAUDE_CODE_BUILD で install.sh layer の cache を破棄し最新の Claude Code を
+  # 取り直す (opus[1m] を扱える ≥2.1.144 を確実に入れるため。Dockerfile 参照)。
+  # 自動ビルドは日単位 (日次で十分な鮮度)、明示的な --rebuild は秒単位で必ず破棄
+  # (日単位だと同日 2 回目の --rebuild が cache hit して更新されない)。
+  if [[ "$REBUILD" == "1" ]]; then
+    CLAUDE_CODE_BUILD="$(date +%Y%m%d%H%M%S)"
+  else
+    CLAUDE_CODE_BUILD="$(date +%Y%m%d)"
+  fi
   docker build \
     --build-arg "USER_UID=${HOST_UID}" \
     --build-arg "USER_GID=${HOST_GID}" \
-    --build-arg "CLAUDE_CODE_BUILD=$(date +%Y%m%d)" \
+    --build-arg "CLAUDE_CODE_BUILD=$CLAUDE_CODE_BUILD" \
     --label "host.uid=${HOST_UID}" \
     --label "host.gid=${HOST_GID}" \
     -t "$IMAGE_NAME" "$DOCKERFILE_DIR"
@@ -259,21 +285,73 @@ fi
 
 # --- 手動 provisioning 資産レジストリのマウント + 初回案内 ---
 # SMPL/SMAL 系のようにライセンス登録が必須で自動 DL できない資産は、ユーザーが
-# 一度だけ手作業で $MANUAL_ASSETS_DIR に置けば、コンテナ内の /reimplement が
-# repo の期待パスへ自動配置する。ここでは (1) 存在すれば read-only マウントし、
-# (2) 未作成/欠落があれば取得 URL 付きの案内を出す (graceful、未配置でも続行)。
-# bootstrap 時点では対象 repo 未解析なので案内は repo 非依存の一般ヒント;
-# repo 固有の必須判定はコンテナ内 Phase 3 が行う。
+# 一度だけ手作業で正本 ($MANUAL_ASSETS_DIR) に置けば、コンテナ内の /reimplement が
+# repo の期待パスへ自動配置する。ここでは (1) 正本を非暗号 staging へ複製して
+# read-only マウントし、(2) 未作成/欠落があれば取得 URL 付きの案内を出す
+# (graceful、未配置でも続行)。bootstrap 時点では対象 repo 未解析なので案内は
+# repo 非依存の一般ヒント; repo 固有の必須判定はコンテナ内 Phase 3 が行う。
+#
+# なぜ複製してマウントするか: Docker daemon は root で動くが、user_id=<uid> かつ
+# allow_other 無しの FUSE (gocryptfs 等) は root が辿れず、そこを bind-mount すると
+# "mkdir <mountpoint>: file exists" で起動失敗する。repo が ~/Documents (gocryptfs)
+# 配下だと正本 $SCRIPT_DIR/manual-assets が必ずこれに当たる。そこで正本が FUSE 上の
+# ときだけ $MANUAL_ASSETS_STAGING へ rsync 複製し、その複製をマウントする。
+#
+# 複製は background で行い docker run をブロックしない (資産更新直後は数十 GB の
+# 転送になり得るため)。同期完了は staging 直下の .sync-complete マーカーで通知し、
+# コンテナ内の manual-asset-provisioner が Phase 3 Step 1.0 (起動から数十分後) で
+# マーカーを待つ。マーカーは起動時に必ず消し、flock 排他の同期ジョブだけが再作成
+# する (並行 bootstrap の rsync --delete 競合と stale マーカーの両方を防ぐ)。
 MANUAL_ASSETS_MOUNT=()
+MANUAL_ASSETS_ENV=()
+MANUAL_ASSETS_MOUNT_SRC="$MANUAL_ASSETS_DIR"
 if [[ -d "$MANUAL_ASSETS_DIR" ]]; then
-  MANUAL_ASSETS_MOUNT=(-v "$MANUAL_ASSETS_DIR:/manual-assets:ro")
+  _assets_fstype=""
+  if command -v findmnt >/dev/null 2>&1; then
+    _assets_fstype="$(findmnt -no FSTYPE --target "$MANUAL_ASSETS_DIR" 2>/dev/null || true)"
+  else
+    log "WARNING: findmnt not found — FUSE 判定不可のため正本を直接マウントする (gocryptfs 上なら docker run が失敗する)"
+  fi
+  if [[ "$_assets_fstype" == fuse* ]]; then
+    command -v rsync >/dev/null 2>&1 || die "rsync not found; required to stage manual-assets off $_assets_fstype"
+    command -v flock >/dev/null 2>&1 || die "flock not found (util-linux); required to stage manual-assets"
+    MANUAL_ASSETS_MOUNT_SRC="$MANUAL_ASSETS_STAGING"
+    mkdir -p "$MANUAL_ASSETS_MOUNT_SRC"
+    _sync_marker="$MANUAL_ASSETS_MOUNT_SRC/.sync-complete"
+    _sync_lock="$LOCK_DIR/manual-assets-staging.lock"
+    rm -f "$_sync_marker"
+    log "manual-assets 正本が $_assets_fstype 上 (Docker が bind-mount 不可) → $MANUAL_ASSETS_MOUNT_SRC へ background 同期 (完了 = .sync-complete)"
+    (
+      flock -x 9
+      # 変更なし (dry-run 空) なら転送せず即マーカー。--partial で中断済み転送を再開可能に。
+      if [[ -n "$(rsync -a --delete --dry-run --out-format='%n' "$MANUAL_ASSETS_DIR/" "$MANUAL_ASSETS_MOUNT_SRC/" | head -1)" ]]; then
+        rsync -a --delete --partial "$MANUAL_ASSETS_DIR/" "$MANUAL_ASSETS_MOUNT_SRC/"
+      fi
+      date -u +%Y-%m-%dT%H:%M:%SZ > "$_sync_marker"
+    ) 9>"$_sync_lock" >"$MANUAL_ASSETS_MOUNT_SRC/.sync.log" 2>&1 &
+    disown
+    MANUAL_ASSETS_ENV=(-e "MANUAL_ASSETS_READY_MARKER=/manual-assets/.sync-complete")
+    # 旧 staging (v0.1.6 以前は $WORKSPACE_DIR/manual-assets) が残っていたら案内
+    if [[ -d "$WORKSPACE_DIR/manual-assets" ]]; then
+      log "NOTE: 旧 staging $WORKSPACE_DIR/manual-assets が残っています (現在は未使用)。容量回収: rm -rf '$WORKSPACE_DIR/manual-assets'"
+    fi
+  fi
+  MANUAL_ASSETS_MOUNT=(-v "$MANUAL_ASSETS_MOUNT_SRC:/manual-assets:ro")
 fi
 if [[ -f "$MANUAL_ASSETS_SCRIPT" ]]; then
   # 完備なら 1 行、未作成/一部欠落なら取得 URL 付きの構造化ブロックを出す。
+  # 案内は正本 ($MANUAL_ASSETS_DIR) を基準に出す (ユーザーが資産を置く場所)。
   python3 "$MANUAL_ASSETS_SCRIPT" inventory \
     --root "$MANUAL_ASSETS_DIR" --manifest "$MANUAL_ASSETS_MANIFEST" \
     --lang "$REPORT_LANG" 2>/dev/null \
     | while IFS= read -r _line; do log "$_line"; done || true
+fi
+
+# --- ANTHROPIC_API_KEY 伝播 (single / batch 共通) ---
+# 値はコマンドラインに出さず env 名のみ渡す (GH_TOKEN と同じ流儀)。
+ENV_FLAGS=()
+if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+  ENV_FLAGS+=(-e ANTHROPIC_API_KEY)
 fi
 
 # --- TERM/COLORTERM 伝播 ---
@@ -350,7 +428,10 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
     "${HF_TOKEN_FLAGS[@]}" \
     "${HF_CACHE_MOUNT[@]}" \
     "${MANUAL_ASSETS_MOUNT[@]}" \
+    "${MANUAL_ASSETS_ENV[@]}" \
+    "${ENV_FLAGS[@]}" \
     -e "REPORT_LANG=$REPORT_LANG" \
+    -e "REPRODUCE_LEVEL=$REPRODUCE_LEVEL" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$REPO_NAME" \
     --shm-size=8g \
@@ -371,55 +452,66 @@ for url in "${URLS[@]}"; do
   REPO_NAMES+=("$name")
 done
 
-ENV_FLAGS=()
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-  ENV_FLAGS+=(-e ANTHROPIC_API_KEY)
-fi
+# tmux に渡すコマンドを echo で 1 本の文字列に潰すと配列の quoting が失われ、
+# スペース / グロブ / $ を含むパスで -v 引数が壊れる。repo ごとに %q で quoting を
+# 保存したラッパースクリプトを生成し、tmux にはそのパスだけを渡す。
+# スクリプトは mktemp -d 配下 (session 終了後は /tmp 掃除に任せる)。
+BATCH_CMD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/paper-reproduce-batch.XXXXXX")"
 
-# docker run コマンドを組み立てるヘルパー
-docker_cmd_for() {
+write_batch_script() {
   local idx="$1"
   local name="${REPO_NAMES[idx]}"
+  local script="$BATCH_CMD_DIR/run-$idx-$name.sh"
 
   # 並列バッチは --gpus "device=N" で 1 GPU だけをコンテナに公開し、
   # flock でそのスロットを 1 ジョブに排他。重複起動時は flock が後続を直列化する。
   # FREE_GPUS が空 (CPU-only or 全 GPU 占有中) のときは GPU 関連フラグを付けない。
   local gpu_args=()
-  local prefix=""
+  local prefix=()
   if (( ${#FREE_GPUS[@]} > 0 )); then
     local gpu_idx="${FREE_GPUS[$(( idx % ${#FREE_GPUS[@]} ))]}"
     gpu_args=(--gpus "device=$gpu_idx")
-    prefix="flock -x $LOCK_DIR/gpu-$gpu_idx.lock"
+    prefix=(flock -x "$LOCK_DIR/gpu-$gpu_idx.lock")
   fi
 
-  echo $prefix docker run --rm -it \
-    -v "$WORKSPACE_DIR:/workspaces" \
-    -v "$HOME/.claude:/home/claude/.claude" \
-    "${CLAUDE_JSON_MOUNT[@]}" \
-    "${SYMLINK_MOUNTS[@]}" \
-    "${TERM_ENV[@]}" \
-    "${GH_TOKEN_FLAGS[@]}" \
-    "${HF_TOKEN_FLAGS[@]}" \
-    "${HF_CACHE_MOUNT[@]}" \
-    "${MANUAL_ASSETS_MOUNT[@]}" \
-    -e "REPORT_LANG=$REPORT_LANG" \
-    -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
-    -w "/workspaces/$name" \
-    --shm-size=8g \
-    "${gpu_args[@]}" \
-    "${ENV_FLAGS[@]}" \
-    "$IMAGE_NAME"
+  local cmd=("${prefix[@]}" docker run --rm -it
+    -v "$WORKSPACE_DIR:/workspaces"
+    -v "$HOME/.claude:/home/claude/.claude"
+    "${CLAUDE_JSON_MOUNT[@]}"
+    "${SYMLINK_MOUNTS[@]}"
+    "${TERM_ENV[@]}"
+    "${GH_TOKEN_FLAGS[@]}"
+    "${HF_TOKEN_FLAGS[@]}"
+    "${HF_CACHE_MOUNT[@]}"
+    "${MANUAL_ASSETS_MOUNT[@]}"
+    "${MANUAL_ASSETS_ENV[@]}"
+    -e "REPORT_LANG=$REPORT_LANG"
+    -e "REPRODUCE_LEVEL=$REPRODUCE_LEVEL"
+    -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler"
+    -w "/workspaces/$name"
+    --shm-size=8g
+    "${gpu_args[@]}"
+    "${ENV_FLAGS[@]}"
+    "$IMAGE_NAME")
+
+  {
+    printf '#!/usr/bin/env bash\nexec'
+    printf ' %q' "${cmd[@]}"
+    printf '\n'
+  } > "$script"
+  chmod +x "$script"
+  printf '%s\n' "$script"
 }
 
 # 最初の repo で tmux セッションを作成
 log "creating tmux session: $SESSION_NAME"
 tmux new-session -d -s "$SESSION_NAME" -n "${REPO_NAMES[0]}" \
-  "$(docker_cmd_for 0)"
+  "$(write_batch_script 0)"
 
 # 残りの repo を tmux ウィンドウとして追加
 for i in $(seq 1 $(( ${#REPO_NAMES[@]} - 1 ))); do
   tmux new-window -t "$SESSION_NAME" -n "${REPO_NAMES[i]}" \
-    "$(docker_cmd_for "$i")"
+    "$(write_batch_script "$i")"
 done
 
 log "launched ${#REPO_NAMES[@]} containers in tmux session: $SESSION_NAME"

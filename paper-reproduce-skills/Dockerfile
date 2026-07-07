@@ -56,7 +56,8 @@ USER claude
 # (現在は Claude Opus 4.8) に解決される。古い Claude Code (2.1.144 より前) は
 # サブスク認証下でこれを扱えず "400 role 'system' is not supported on this model"
 # を返すので、最新版を確実に入れ直せるよう CLAUDE_CODE_BUILD で cache を破棄できるようにする。
-# bootstrap.sh が build 毎に日付を渡すため、--rebuild すれば必ず最新版を取得する。
+# bootstrap.sh は自動 build では日単位、--rebuild では秒単位の値を渡す
+# (--rebuild は同日 2 回目でも必ず cache を破棄して最新版を取得する)。
 ARG CLAUDE_CODE_BUILD=unset
 RUN curl -fsSL https://claude.ai/install.sh | bash
 

@@ -5,6 +5,78 @@
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-07-03
+
+全体監査 (`docs/2026-07-03_system-audit.html`) で検出した問題の修正。
+
+### Added — claim 検証の実体化 (P0-C)
+
+Phase 3.5 の Exit Gate だった `paper-claim-audit` は plugin に実体が無く、ホストの
+ARIS skill (別契約・Codex MCP 必須) に名前だけ偶然解決していた。検証をプラグイン内で
+完結させ、「実行した本人の自己申告」構造を解消する:
+
+- **`scripts/check_claims.py` (新規)**: tolerance パース (`rel±10%` / `abs±0.3`)、
+  metric 方向推論、evidence の実在・snippet 照合 (捏造値は `not_evaluated` に降格)、
+  `matched / within_tolerance / missed / not_evaluated` 判定をすべて決定論的コードで実施。
+  常に exit 0 + `reports/_claims.json` を出力 (jq 転記がファイル欠落で壊れない)。
+- **抽出と判定の分離**: observed 値の抽出は zero-context サブエージェント
+  (metric 名のみ渡し **paper_target は渡さない** = 目標値へ寄せるバイアス遮断) が
+  `reports/_observed.json` に evidence 付きで記録し、判定には LLM を関与させない。
+- **再現レベルの導入 (`REPRODUCE_LEVEL`)**: 既定 `inference` は推論再現まで
+  (claim は抽出・表示のみ、ベンチマーク dataset 取得なし = 従来の軽い挙動)。
+  `bootstrap.sh --full` で学習 + eval + claim 定量評価までのフル検証。
+  レベルは `report.json.reproduce_level` (schema required) に必ず記録され、
+  inference の success は「推論再現の成功」であることがレポートから読める。
+- **未検証 success の禁止 (楽観方向ガード、full のみ)**: full で `paper_claims[]`
+  非空なのに `claims_verification[]` が空 / 全 `not_evaluated` の `success` を
+  MUST NOT 化。full では `inference_only` の repo でも claim があれば Phase 3.5 を
+  eval-only モードで必ず起動。inference レベルでは claim を `not_evaluated` として
+  正直に記録した上で従来どおりの success 判定 (範囲外の明示で誠実さを担保)。
+- **schema 強化**: `claims_verification` / `next_actions` を required 化、
+  `status ∈ {matched, within_tolerance}` ⇒ `observed` + `evidence_path` 非 null を
+  条件付き必須化 (根拠なしの再現成功はゲートを通らない)。`analysis.schema.json` に
+  `dep_type` enum (A1-F) と `pixi_strategy` / `dep_files_found` / `demo_commands` /
+  `model_download` の型を宣言 (循環空契約の解消)。
+
+### Changed — manual-assets staging の非同期化
+
+- staging を `$WORKSPACE_DIR/manual-assets` → `~/.cache/paper-reproduce/manual-assets`
+  (`MANUAL_ASSETS_STAGING`) へ移動: `/workspaces` rw マウント経由で :ro 資産が
+  書き換え可能だった穴と、`manual-assets` という名前の repo との衝突を解消。
+- rsync 同期を background 化し docker run をブロックしない (資産更新直後の数十 GB
+  転送で起動が数分止まる問題の解消)。完了は staging 直下の `.sync-complete` マーカーで
+  通知し、コンテナ内 manual-asset-provisioner が Phase 3 Step 1.0 で待機
+  (`MANUAL_ASSETS_READY_MARKER` env)。flock 排他で並行 bootstrap の
+  `rsync --delete` 競合を防止。`--partial` で中断転送を再開可能に。
+  rsync 不在時の `rm -rf && cp -a` fallback (毎回 22GB 全コピー) は廃止し rsync 必須化。
+- `provision_manual_assets.py place`: path traversal ガード (src はレジストリ内 /
+  dest は repo 内のみ、symlink 越え含め realpath で検証)、tmp+rename のアトミック
+  書き込み + サイズ一致検証 (truncated ファイルの `placed` 誤判定を解消)。
+  新 status `invalid_path` / `copy_size_mismatch`。
+
+### Fixed — bootstrap.sh / CI
+
+- バッチモード: `echo` 連結 + tmux 再パースで quoting が全喪失していたのを、
+  `%q` でエスケープした per-repo ラッパースクリプト生成方式に変更。
+- `ANTHROPIC_API_KEY` を単一モードにも伝播 (従来はバッチ専用)。
+- `--rebuild` の cache-bust を秒単位化 (同日 2 回目の `--rebuild` で Claude Code が
+  更新されない問題)。
+- `findmnt` 不在時に FUSE 判定を黙って skip していたのを警告表示に。
+- CI: `bash -n` + shellcheck (bootstrap.sh / entrypoint.sh)、`tests/` の stdlib
+  unittest (29 件: check_claims / provision_manual_assets)、schema の metaschema 検証、
+  イメージ内 `claude --version` ≥ 2.1.144 の assert を追加。
+- reimplement SKILL.md: 存在しない「Phase 3.5.7」参照の修正、成果物レイアウトへの
+  `telemetry.json` 追記。repo-analyzer に Step 1/5/6/7 の出力フィールド宣言を追加。
+
+### 既知の未対応 (意図的な先送り)
+
+- ホスト認証情報 (OAuth / GH_TOKEN / HF_TOKEN / `~/.claude` rw) の untrusted repo
+  コードへの露出: コンテナがホストの認証を引き継ぐ設計自体が現行コンセプトのため、
+  信頼できる repo に限る運用で許容。製品配布時に隔離設計を再検討する
+  (監査レポート §3.1 参照)。
+- GPU 空き判定の TOCTOU / flock 無タイムアウト / `curl | bash` の checksum 無し
+  (LOW、監査レポート #15)。
+
 ## [0.1.6] - 2026-06-25
 
 ### Added — ライセンスゲート資産 (SMPL/SMAL 系) の手動 provisioning 機構

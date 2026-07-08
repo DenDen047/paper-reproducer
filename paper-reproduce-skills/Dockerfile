@@ -52,8 +52,8 @@ USER claude
 #
 # install.sh は常に最新版を入れるが、この RUN は Docker layer cache に乗るため
 # 一度ビルドすると古い版に固定される (例: 2026-05-10 ビルドの image は 2.1.138)。
-# opus[1m] (1M context) は host settings.json の model エイリアスで、最新の Opus
-# (現在は Claude Opus 4.8) に解決される。古い Claude Code (2.1.144 より前) は
+# opus[1m] (1M context) は bootstrap.sh が --model で渡す既定モデルエイリアスで、
+# 最新の Opus (現在は Claude Opus 4.8) に解決される。古い Claude Code (2.1.144 より前) は
 # サブスク認証下でこれを扱えず "400 role 'system' is not supported on this model"
 # を返すので、最新版を確実に入れ直せるよう CLAUDE_CODE_BUILD で cache を破棄できるようにする。
 # bootstrap.sh は自動 build では日単位、--rebuild では秒単位の値を渡す

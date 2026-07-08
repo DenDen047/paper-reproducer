@@ -15,9 +15,11 @@ if [[ -n "$libc_ver" ]] && [[ "$(printf '%s\n2.31\n' "$libc_ver" | sort -V | hea
   echo "[entrypoint] WARN: libc $libc_ver < 2.31 — open3d 0.19+ may fail to install" >&2
 fi
 
-# モデルは host の ~/.claude/settings.json (model: opus[1m]) をそのまま継承する。
-# opus[1m] (1M context) は最新 Opus エイリアスで、現在は Claude Opus 4.8 に解決される。
-# 古い Claude Code (<2.1.144) + サブスク(OAuth)認証では
+# モデル/effort は bootstrap.sh が docker run の CMD 引数 (--model / --effort) として
+# 渡し、下の "$@" が claude に転送する (既定: opus[1m] × xhigh。opus[1m] は 1M context
+# の最新 Opus エイリアスで、現在は Claude Opus 4.8 に解決される)。CLI 引数は mount
+# された host settings.json の model 設定より優先されるため、host 既定 (fable-5 等)
+# は継承しない。古い Claude Code (<2.1.144) + サブスク(OAuth)認証では
 # "400 role 'system' is not supported on this model" を返すため、image 内の
 # claude が新しいことが前提 (Dockerfile の CLAUDE_CODE_BUILD cache-bust で担保)。
 exec claude \

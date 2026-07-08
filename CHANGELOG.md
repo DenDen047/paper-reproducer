@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### Changed — コンテナのモデルを Opus に固定
+
+host の `~/.claude/settings.json` の model (現在 fable-5) を継承する設計をやめ、
+bootstrap.sh が docker run の CMD 引数 `--model` / `--effort` を entrypoint 経由で
+claude に渡す方式に変更。既定は `opus[1m]` (現在 Claude Opus 4.8 に解決) × `xhigh`。
+`REPRODUCE_MODEL` / `REPRODUCE_EFFORT` 環境変数で上書き可。entrypoint は従来から
+`"$@"` を転送しているため、既存 image の再ビルドは不要。
+
 ## [0.1.7] - 2026-07-03
 
 全体監査 (`docs/2026-07-03_system-audit.html`) で検出した問題の修正。

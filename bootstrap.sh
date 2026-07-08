@@ -41,6 +41,12 @@ REPORT_LANG="${REPORT_LANG:-ja}"
 # 再現レベル: inference (既定) = 推論再現まで / full = 学習 + claim 定量評価まで。
 # claim の抽出・表示はどちらでも行うが、時間のかかる training / eval は full のみ。
 REPRODUCE_LEVEL="${REPRODUCE_LEVEL:-inference}"
+# コンテナ内 Claude Code のモデル/effort。host の ~/.claude/settings.json の model
+# (現在 fable-5) を継承させず、再現ジョブは Opus に固定する。opus[1m] は 1M context
+# の最新 Opus エイリアス (現在 Claude Opus 4.8 に解決)。entrypoint.sh が "$@" 経由で
+# claude に転送するため、既存 image のまま (再ビルドなしで) 効く。
+REPRODUCE_MODEL="${REPRODUCE_MODEL:-opus[1m]}"
+REPRODUCE_EFFORT="${REPRODUCE_EFFORT:-xhigh}"
 
 usage() {
   cat <<EOF
@@ -68,6 +74,9 @@ Environment:
                         (default: ~/.cache/paper-reproduce/manual-assets)
   REPORT_LANG           Same as --lang (default: ja); overridden by --lang
   REPRODUCE_LEVEL       inference (default) | full; --full sets full
+  REPRODUCE_MODEL       Claude model inside the container (default: opus[1m],
+                        currently resolves to Claude Opus 4.8)
+  REPRODUCE_EFFORT      Reasoning effort: low|medium|high|xhigh|max (default: xhigh)
 
 Examples:
   ./bootstrap.sh https://github.com/user/repo.git
@@ -145,6 +154,12 @@ case "$REPRODUCE_LEVEL" in
   *) die "unsupported REPRODUCE_LEVEL '$REPRODUCE_LEVEL' (expected: inference | full)" ;;
 esac
 log "reproduce level: $REPRODUCE_LEVEL"
+
+case "$REPRODUCE_EFFORT" in
+  low|medium|high|xhigh|max) ;;
+  *) die "unsupported REPRODUCE_EFFORT '$REPRODUCE_EFFORT' (expected: low | medium | high | xhigh | max)" ;;
+esac
+log "claude model: $REPRODUCE_MODEL (effort: $REPRODUCE_EFFORT)"
 
 # --- 事前チェック（共通）---
 command -v git     >/dev/null 2>&1 || die "git not found on PATH"
@@ -354,6 +369,11 @@ if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
   ENV_FLAGS+=(-e ANTHROPIC_API_KEY)
 fi
 
+# --- コンテナ内 claude への CLI 引数 (single / batch 共通) ---
+# image 名の後ろに置くと docker の CMD になり、entrypoint.sh の "$@" が claude に
+# 転送する。CLI 引数は mount された settings.json の model 設定より優先される。
+CLAUDE_ARGS=(--model "$REPRODUCE_MODEL" --effort "$REPRODUCE_EFFORT")
+
 # --- TERM/COLORTERM 伝播 ---
 # 未設定だと Docker が TERM=dumb を渡し、Claude Code の Ink TUI が描画されない。
 TERM_ENV=(-e "TERM=${TERM:-xterm-256color}")
@@ -436,7 +456,8 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
     -w "/workspaces/$REPO_NAME" \
     --shm-size=8g \
     "${GPU_FLAGS[@]}" \
-    "$IMAGE_NAME"
+    "$IMAGE_NAME" \
+    "${CLAUDE_ARGS[@]}"
 fi
 
 # ---------- 並列バッチモード (tmux) ----------
@@ -492,7 +513,8 @@ write_batch_script() {
     --shm-size=8g
     "${gpu_args[@]}"
     "${ENV_FLAGS[@]}"
-    "$IMAGE_NAME")
+    "$IMAGE_NAME"
+    "${CLAUDE_ARGS[@]}")
 
   {
     printf '#!/usr/bin/env bash\nexec'

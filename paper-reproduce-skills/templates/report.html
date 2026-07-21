@@ -151,6 +151,12 @@
       <label>{{T_LABEL_TOTAL_DURATION}}</label>
       <span class="value">{{DURATION_TOTAL}}</span>
     </div>
+    {{#INFERENCE_RUNTIME}}
+    <div class="summary-item">
+      <label>{{T_LABEL_INFERENCE_RUNTIME}}</label>
+      <span class="value">{{DURATION_INFERENCE}}</span>
+    </div>
+    {{/INFERENCE_RUNTIME}}
   </div>
   {{#FAILURE_HEADLINE}}
   <div class="failure-headline">

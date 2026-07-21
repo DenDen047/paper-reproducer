@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### Added — 推論レベルのレポートに推論実行時間を表示
+
+`REPRODUCE_LEVEL=inference` のとき、`report.json` に `inference_runtime_s` (推論そのものの
+wall-clock、秒) を記録し、`report.html` のサマリーに **推論実行時間** の item を追加する。出典は
+`attempts.tsv` の P0-E reference attempt (phase3 / success) の `duration_s` で、既存の
+`総所要時間` (= 再現全体の wall-clock。env build / dataset DL / 失敗試行を含む) とは別物。
+「このモデルの推論に手元の HW で何秒かかるか」を一目で読めるようにするのが狙い。full レベルでは
+`null` のまま (ヘッドラインは claim 検証)、サマリー item も出さない (`finalize_report.py` の
+`--flag INFERENCE_RUNTIME` 開閉)。`report.html` / `i18n.json` / `RENDERING.md` /
+`reimplement` Phase 4 (Step 2 埋め込み規則・Step 3.5 flag) を更新。
+
 ### Changed — コンテナのモデルを Opus に固定
 
 host の `~/.claude/settings.json` の model (現在 fable-5) を継承する設計をやめ、

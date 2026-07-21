@@ -422,7 +422,7 @@ python3 /paper-reproduce-skills/scripts/build_related_issues_block.py \
 
 ### Step 2: reports/report.json 生成 (機械可読、SSOT)
 
-スキーマは `schemas/report.schema.json` 参照 (canonical)。主要フィールド: `repo_name`, `repo_url`, `overview`, `problem`, `status`, `reproduce_level`, `failure_headline`, `failure_recoverability`, `dep_type`, `total_attempts`, `duration_total_s`, `pixi_toml_hash`, `errors`, `environment`, `telemetry`, `usage`, `samples`, `next_actions`, `related_issues`, `claims_verification`, `archive_path`, `plugin_version`。
+スキーマは `schemas/report.schema.json` 参照 (canonical)。主要フィールド: `repo_name`, `repo_url`, `overview`, `problem`, `status`, `reproduce_level`, `failure_headline`, `failure_recoverability`, `dep_type`, `total_attempts`, `duration_total_s`, `inference_runtime_s`, `pixi_toml_hash`, `errors`, `environment`, `telemetry`, `usage`, `samples`, `next_actions`, `related_issues`, `claims_verification`, `archive_path`, `plugin_version`。
 
 **埋め込み規則** (各フィールドの転記元):
 - `reproduce_level` → env `$REPRODUCE_LEVEL` (`inference` | `full`) をそのまま記録
@@ -434,6 +434,7 @@ python3 /paper-reproduce-skills/scripts/build_related_issues_block.py \
 - `failure_headline` / `failure_recoverability` → Step 1.7.5 (`success` 時 null)
 - `related_issues` → Step 1.8 の `_gh_aggregate.json.results[]` 上位 10 件
 - `claims_verification` → `_claims.json.results[]` (full: Phase 3.5「eval 実行 + claim 検証 (P0-C)」の判定結果 / inference: レベルゲートで生成した全行 `not_evaluated`)。`paper_claims=[]` の場合のみ `[]`
+- `inference_runtime_s` → **`REPRODUCE_LEVEL=inference` のときのみ** 記録する推論そのものの wall-clock (秒)。出典は attempts.tsv の **P0-E reference attempt** (phase3 / result=success / intent に `P0-E paper-default attempt` を含む行) の `duration_s`。デモ/推論の実行時間であり `duration_total_s` (再現全体) とは別物 — env build / dataset DL / 失敗試行を含めない。full レベル、または推論の wall-clock が特定できない場合は `null`。抽出は下の duration_total_s ブロック直後のスニペット参照
 - `archive_path` → Step 5.2 で更新 (Step 2 時点は `null` 仮置き)
 
 **status 判定** (上から順、最初にマッチ):
@@ -475,6 +476,21 @@ fi
 DURATION_TOTAL=$(( SUM > SPAN ? SUM : SPAN ))   # SUM < SPAN*0.7 なら計測漏れ、ただし大きい方を採用
 ```
 
+**inference_runtime_s** (推論の wall-clock、`REPRODUCE_LEVEL=inference` のみ): P0-E reference attempt の実行時間だけを抜き出す (env build / DL / 失敗試行は含めない)。full レベルでは `null` のまま。
+
+```bash
+INFERENCE_RUNTIME_S=null
+if [ "${REPRODUCE_LEVEL:-inference}" = "inference" ]; then
+    # phase3 の成功行のうち P0-E paper-default reference attempt の duration_s。
+    # 複数該当時は最後の成功行 (reduced/CPU fallback で再成功したケースの実測を優先)。
+    V=$(awk -F'\t' 'NR>1 && $3=="phase3" && $6=="success" && $5 ~ /P0-E paper-default attempt/ {v=$9} END{if(v!="")print v+0}' reports/attempts.tsv)
+    [ -n "$V" ] && INFERENCE_RUNTIME_S="$V"
+fi
+# INFERENCE_RUNTIME_S を report.json.inference_runtime_s にそのまま (数値 or null) 埋める
+```
+
+P0-E 行が success で終わっていない (= OOM ladder / arch upgrade の fallback attempt で初めて推論が通った) 場合は、実際にサンプル出力を生成した phase3 success 行 (model_download 行ではなく demo/inference 実行行) の `duration_s` を採用する。
+
 #### Phase 4 Step 2 Exit Gate (schema validation, P0-D)
 
 ```bash
@@ -508,10 +524,12 @@ STATUS=$(jq -r '.status' reports/report.json)
 HEADLINE=$(jq -r '.failure_headline // empty' reports/report.json)
 ARCHIVE=$(jq -r '.archive_path // empty' reports/report.json)
 CLAIMS_COUNT=$(jq -r '.claims_verification | length' reports/report.json)
+INFER_RT=$(jq -r '.inference_runtime_s // empty' reports/report.json)
 case "$STATUS" in failed|partial) FLAG_ARGS+=(--flag ERRORS) ;; esac
 [ -n "$HEADLINE" ]      && FLAG_ARGS+=(--flag FAILURE_HEADLINE)
 [ -n "$ARCHIVE" ]       && FLAG_ARGS+=(--flag ARCHIVE_PATH)
 [ "$CLAIMS_COUNT" -gt 0 ] && FLAG_ARGS+=(--flag CLAIMS_VERIFICATION)
+[ -n "$INFER_RT" ]      && FLAG_ARGS+=(--flag INFERENCE_RUNTIME)
 case "$STATUS" in failed|partial|infeasible) FLAG_ARGS+=(--flag RELATED_ISSUES) ;; esac
 
 python3 /paper-reproduce-skills/scripts/finalize_report.py \

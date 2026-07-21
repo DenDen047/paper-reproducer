@@ -26,12 +26,16 @@
 | `{{T_META_GENERATED}}` | `meta_generated` |
 | `{{T_H2_SUMMARY}}` / `{{T_H2_ENVIRONMENT}}` / `{{T_H2_OVERVIEW}}` / `{{T_H2_PROBLEM}}` / `{{T_H2_USAGE}}` / `{{T_H2_NEXT_ACTIONS}}` / `{{T_H2_SAMPLES}}` / `{{T_H2_ATTEMPTS}}` / `{{T_H2_ARTIFACTS}}` / `{{T_H2_PIXI}}` / `{{T_H2_ERRORS}}` / `{{T_H2_RELATED_ISSUES}}` / `{{T_H2_CLAIMS_VERIFICATION}}` | `h2_*` |
 | `{{T_H3_QUICKSTART}}` / `{{T_H3_ADVANCED}}` / `{{T_H3_DEVELOPER}}` | `h3_*` |
-| `{{T_LABEL_STATUS}}` / `{{T_LABEL_DEP_TYPE}}` / `{{T_LABEL_TOTAL_ATTEMPTS}}` / `{{T_LABEL_TOTAL_DURATION}}` / `{{T_LABEL_FAILURE_REASON}}` / `{{T_LABEL_ARCHIVE}}` | `label_*` |
+| `{{T_LABEL_STATUS}}` / `{{T_LABEL_DEP_TYPE}}` / `{{T_LABEL_TOTAL_ATTEMPTS}}` / `{{T_LABEL_TOTAL_DURATION}}` / `{{T_LABEL_INFERENCE_RUNTIME}}` / `{{T_LABEL_FAILURE_REASON}}` / `{{T_LABEL_ARCHIVE}}` | `label_*` |
 | `{{T_TH_NUM}}` / `{{T_TH_COMMIT}}` / `{{T_TH_PHASE}}` / `{{T_TH_ACTION}}` / `{{T_TH_INTENT}}` / `{{T_TH_RESULT}}` / `{{T_TH_TIER}}` / `{{T_TH_ERROR_SUMMARY}}` / `{{T_TH_DURATION_S}}` | `th_*` |
 | `{{T_LEGEND_SUMMARY}}` / `{{T_LEGEND_PHASE_HEADING}}` / `{{T_LEGEND_TIER_HEADING}}` / `{{T_LEGEND_PHASE0_DESC}}` … `{{T_LEGEND_PHASE4_DESC}}` / `{{T_LEGEND_TIER0_DESC}}` / `{{T_LEGEND_TIER1_DESC}}` / `{{T_LEGEND_TIER2_CONFIG_DESC}}` / `{{T_LEGEND_TIER2_HARDWARE_DESC}}` / `{{T_LEGEND_TIER3_DESC}}` / `{{T_LEGEND_DASH_DESC}}` | `legend_*` |
 | `{{T_WARN_FILE_PROTOCOL_TITLE}}` / `{{T_WARN_FILE_PROTOCOL_BODY}}` | `warn_file_protocol_*` |
 | `{{T_FOOTER_GENERATED_BY}}` | `footer_generated_by`（`{plugin_name}` を `paper-reproduce` に、`{version}` を `plugin.json.version` に展開してから挿入） |
 | `{{I18N_JSON_INLINE}}` | strings dict 全体を `JSON.stringify` 相当（`<` `>` `&` をエスケープ済み）。JS 側 (copy ボタン、3D viewer エラー、Point size スライダ) はこれを `window.__I18N__` 経由で読む |
+
+## Summary の推論実行時間 (条件付きブロック)
+
+`reproduce_level=inference` で推論の wall-clock が取れたときだけ、Summary グリッドに **推論実行時間** の item を出す。テンプレートの `{{#INFERENCE_RUNTIME}} … {{/INFERENCE_RUNTIME}}` は `finalize_report.py` (Step 3.5) が `--flag INFERENCE_RUNTIME` の有無で開閉する。中の `{{DURATION_INFERENCE}}` は Step 3 で `report.json.inference_runtime_s` (秒) を **`{{DURATION_TOTAL}}` と同じ人間可読フォーマット** (例: `3分48秒` / `3m 48s`) に整形して埋める。`inference_runtime_s` が `null` (= full レベル、または推論の wall-clock 不明) のときは Step 3.5 で flag を渡さないので、ブロックごと消える (= 従来の 4 item サマリー)。
 
 ## 動的レンダリング側で使う dict キー
 

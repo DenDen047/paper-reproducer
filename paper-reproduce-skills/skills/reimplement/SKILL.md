@@ -31,7 +31,7 @@ Phase 0 → Phase 4 を順に実行する。**詳細ロジックは下位スキ�
 | 2 環境 | `pixi-env-builder` / `dep-converter` / `cuda-dependency-resolver` | `pixi.toml` / `pixi.lock` | `pixi install` 成功 + `torch.cuda.is_available()==True` |
 | 3 推論 | `experiment-loop` (Tier) | `reports/telemetry.json`, 推論出力 | デモ/推論コマンド成功 |
 | 3.5 学習+claim 検証 (`REPRODUCE_LEVEL=full` のみ) | `experiment-loop` | `reports/training_metrics.json`, eval 出力, `reports/_claims.json` | `scripts/check_claims.py` 完了 (P0-C) |
-| 4 報告 | `usage-documenter` / `sample-embedder` / `templates/RENDERING.md` | `reports/report.{json,html}`, アーカイブ | `check-jsonschema` で `schemas/report.schema.json` に validate |
+| 4 報告 | `usage-documenter` / `sample-embedder` / `webui-builder` / `templates/RENDERING.md` | `reports/report.{json,html}`, `reports/webui/`, アーカイブ | `check-jsonschema` で `schemas/report.schema.json` に validate |
 
 ---
 
@@ -51,6 +51,7 @@ Phase 0 → Phase 4 を順に実行する。**詳細ロジックは下位スキ�
     ├── training_metrics.json  # Phase 3.5 (scripts/training_watcher.py)
     ├── eval/               # Phase 3.5 eval 出力
     ├── samples/{input,output}/  # Phase 4 Step 1.6
+    ├── webui/              # Phase 4 Step 1.65 (webui.json + app.py + pixi.toml/lock。.pixi/ と jobs/ は .gitignore)
     ├── report.json         # Phase 4 機械可読
     └── report.html         # Phase 4 目視確認
 
@@ -358,6 +359,14 @@ pixi run python /paper-reproduce-skills/scripts/snapshot_env.py reports/environm
 
 `samples.category == "mv_to_gaussians"` の場合、必ず動画を主出力にする (sample-embedder Step 4.5.5、`scripts/render_gaussian_video.py`)。
 
+### Step 1.65: 推論 WebUI 生成 (webui-builder)
+
+**詳細**: `skills/webui-builder/SKILL.md` 参照。status ∈ {success, partial} かつ Phase 3 の検証済み推論コマンドがあるとき、`reports/webui/` に config 駆動の Gradio WebUI (webui.json + 固定テンプレート app.py + 専用 pixi 環境) を生成し、起動スモークテストまで検証する。
+
+- 結果は 3 箇所へ反映: `report.json.webui` (Step 2) / `usage.advanced` 1 エントリ / `next_actions` 1 エントリ
+- 生成 skip / スモーク失敗でも止まらない (NEVER STOP)。`webui.generated=false` + `reason` を記録して先へ進む
+- サーバー起動はここでは行わない (Step 7 の責務)
+
 ### Step 1.7: Next Actions の生成
 
 `next_actions[]` を生成し Step 2 で `report.json` に組み込む。Step 3 で HTML レンダリング、Step 6 でターミナル出力 (3 箇所同一ソース)。
@@ -422,7 +431,7 @@ python3 /paper-reproduce-skills/scripts/build_related_issues_block.py \
 
 ### Step 2: reports/report.json 生成 (機械可読、SSOT)
 
-スキーマは `schemas/report.schema.json` 参照 (canonical)。主要フィールド: `repo_name`, `repo_url`, `overview`, `problem`, `status`, `reproduce_level`, `failure_headline`, `failure_recoverability`, `dep_type`, `total_attempts`, `duration_total_s`, `inference_runtime_s`, `pixi_toml_hash`, `errors`, `environment`, `telemetry`, `usage`, `samples`, `next_actions`, `related_issues`, `claims_verification`, `archive_path`, `plugin_version`。
+スキーマは `schemas/report.schema.json` 参照 (canonical)。主要フィールド: `repo_name`, `repo_url`, `overview`, `problem`, `status`, `reproduce_level`, `failure_headline`, `failure_recoverability`, `dep_type`, `total_attempts`, `duration_total_s`, `inference_runtime_s`, `pixi_toml_hash`, `errors`, `environment`, `telemetry`, `usage`, `samples`, `webui`, `next_actions`, `related_issues`, `claims_verification`, `archive_path`, `plugin_version`。
 
 **埋め込み規則** (各フィールドの転記元):
 - `reproduce_level` → env `$REPRODUCE_LEVEL` (`inference` | `full`) をそのまま記録
@@ -430,6 +439,7 @@ python3 /paper-reproduce-skills/scripts/build_related_issues_block.py \
 - `environment` → `reports/environment.json` (Step 1.4)
 - `usage` → Step 1.5 (取れなかった階層は `null`、`advanced` のみ空配列 `[]`)
 - `samples` → Step 1.6
+- `webui` → Step 1.65 (生成しなかった場合も `{generated: false, smoke_test: "skipped", reason: "<なぜ>"}` を必ず記録)
 - `next_actions` → Step 1.7
 - `failure_headline` / `failure_recoverability` → Step 1.7.5 (`success` 時 null)
 - `related_issues` → Step 1.8 の `_gh_aggregate.json.results[]` 上位 10 件
@@ -610,6 +620,29 @@ Archive: {archive_path or "(not created; Phase 1 infeasible)"}
 ```
 
 `next_actions` 空 → ja:「特筆すべき次のアクションはありません。」 / en: "No notable next actions."
+
+### Step 7: レポート + WebUI の配信開始
+
+最終ステップ。レポートサーバと (生成済みなら) 推論 WebUI をコンテナ内で background 起動し、アクセス先を出力する:
+
+```bash
+bash /paper-reproduce-skills/scripts/serve.sh --repo-dir "$PWD" --no-wait
+```
+
+- serve.sh は冪等 (ポート使用中なら skip)。起動ログは `/tmp/serve-{report,webui}.log`
+- ホスト側ポートは bootstrap.sh が `-p` で公開済みで、env `$REPORT_HOST_PORT` / `$WEBUI_HOST_PORT` に入っている (未設定ならコンテナ内ポート 8000 / 7860 をそのまま表示)
+- 起動後、ターミナルに以下を出力する (LANG=ja の例。en は同等の英文):
+
+```
+## アクセス先
+レポート: http://localhost:{REPORT_HOST_PORT}/report.html
+WebUI:    http://localhost:{WEBUI_HOST_PORT}/        # webui.generated=true のときのみ
+リモートの場合: ssh -L {WEBUI_HOST_PORT}:localhost:{WEBUI_HOST_PORT} -L {REPORT_HOST_PORT}:localhost:{REPORT_HOST_PORT} <このホスト>
+注意: このコンテナ終了でサーバも止まる。常設配信は ./bootstrap.sh --serve {repo_name}
+```
+
+- WebUI 未生成 (`webui.generated=false`) の場合は WebUI 行を出さず、`webui.reason` を 1 行添える
+- サーバ起動失敗はレポート成果物に影響しない (エラーを表示して終了してよい。status 再判定はしない)
 
 ---
 

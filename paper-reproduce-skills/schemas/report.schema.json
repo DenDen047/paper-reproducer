@@ -4,7 +4,7 @@
   "title": "report.json (Phase 4 Step 2 出力)",
   "description": "重要な invariant のみを enforce。新規フィールド追加は許可。",
   "type": "object",
-  "required": ["repo_name", "status", "reproduce_level", "samples", "claims_verification", "next_actions"],
+  "required": ["repo_name", "status", "reproduce_level", "samples", "claims_verification", "next_actions", "webui"],
   "properties": {
     "repo_name": { "type": "string", "minLength": 1 },
     "status":    { "enum": ["success", "partial", "failed"] },
@@ -82,6 +82,47 @@
           "tier":    { "type": "string" }
         }
       }
+    },
+
+    "webui": {
+      "type": "object",
+      "description": "Phase 4 Step 1.65 (webui-builder) の結果。生成しなかった場合も generated=false + reason で必ず記録する。",
+      "required": ["generated", "smoke_test"],
+      "properties": {
+        "generated":   { "type": "boolean" },
+        "config_path": { "type": ["string", "null"] },
+        "port":        { "type": ["integer", "null"] },
+        "smoke_test":  { "enum": ["passed", "failed", "skipped"] },
+        "reason":      { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "description": "generated=true はスモークテスト通過と config の実在パスが必須 (未検証 WebUI を生成済みと名乗らせない)。",
+          "if": {
+            "properties": { "generated": { "const": true } },
+            "required": ["generated"]
+          },
+          "then": {
+            "required": ["config_path", "port"],
+            "properties": {
+              "config_path": { "type": "string", "minLength": 1 },
+              "port":        { "type": "integer" },
+              "smoke_test":  { "const": "passed" }
+            }
+          }
+        },
+        {
+          "description": "generated=false は reason 必須 (なぜ生成しなかったかをレポートに残す)。",
+          "if": {
+            "properties": { "generated": { "const": false } },
+            "required": ["generated"]
+          },
+          "then": {
+            "required": ["reason"],
+            "properties": { "reason": { "type": "string", "minLength": 1 } }
+          }
+        }
+      ]
     },
 
     "next_actions": {

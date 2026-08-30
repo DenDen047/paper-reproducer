@@ -37,6 +37,7 @@ FRESH=0
 REPOS_FILE=""
 URLS=()
 LIST_ASSETS=0
+SERVE_MODE=0
 REPORT_LANG="${REPORT_LANG:-ja}"
 # 再現レベル: inference (既定) = 推論再現まで / full = 学習 + claim 定量評価まで。
 # claim の抽出・表示はどちらでも行うが、時間のかかる training / eval は full のみ。
@@ -47,6 +48,12 @@ REPRODUCE_LEVEL="${REPRODUCE_LEVEL:-inference}"
 # claude に転送するため、既存 image のまま (再ビルドなしで) 効く。
 REPRODUCE_MODEL="${REPRODUCE_MODEL:-opus[1m]}"
 REPRODUCE_EFFORT="${REPRODUCE_EFFORT:-xhigh}"
+# WebUI / レポート配信のホスト側ポート希望値 (コンテナ内は 7860 / 8000 固定)。
+# 使用中なら空きポートへ自動インクリメント。ホスト側 bind は BIND_ADDR
+# (既定 127.0.0.1 = ローカル/SSH トンネル経由のみ。LAN 公開は BIND_ADDR=0.0.0.0)。
+WEBUI_PORT="${WEBUI_PORT:-7860}"
+REPORT_PORT="${REPORT_PORT:-8000}"
+BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
 
 usage() {
   cat <<EOF
@@ -64,6 +71,10 @@ Options:
   --full             Full verification: training + quantitative claim eval
                      (default is inference-level reproduction only)
   --lang <code>      Report output language: ja (default) | en
+  --serve            Serve an already-reproduced repo (report + inference WebUI)
+                     without Claude Code. Takes one URL or repo name under
+                     WORKSPACE_DIR. Ports: report 8000, WebUI 7860 (host side,
+                     auto-incremented when busy)
   --list-assets      Show manual-asset registry status (license-gated models) and exit
   -h, --help         Show this help
 
@@ -77,11 +88,16 @@ Environment:
   REPRODUCE_MODEL       Claude model inside the container (default: opus[1m],
                         currently resolves to Claude Opus 4.8)
   REPRODUCE_EFFORT      Reasoning effort: low|medium|high|xhigh|max (default: xhigh)
+  WEBUI_PORT            Host port for the inference WebUI (default: 7860)
+  REPORT_PORT           Host port for the report server (default: 8000)
+  BIND_ADDR             Host bind address for published ports (default: 127.0.0.1;
+                        use 0.0.0.0 to expose on the LAN)
 
 Examples:
   ./bootstrap.sh https://github.com/user/repo.git
   ./bootstrap.sh url1.git url2.git url3.git
   ./bootstrap.sh --repos repos.txt
+  ./bootstrap.sh --serve some-paper        # serve report + WebUI, no Claude Code
 EOF
 }
 
@@ -104,6 +120,7 @@ while [[ $# -gt 0 ]]; do
       REPORT_LANG="$2"; shift 2 ;;
     --lang=*)
       REPORT_LANG="${1#*=}"; shift ;;
+    --serve) SERVE_MODE=1; shift ;;
     --list-assets) LIST_ASSETS=1; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; break ;;
@@ -236,6 +253,35 @@ fi
 # 並列バッチ用 GPU ロック ディレクトリ
 LOCK_DIR="${LOCK_DIR:-/tmp/paper-reproduce-locks}"
 mkdir -p "$LOCK_DIR"
+
+# --- ポート公開 (レポート 8000 / WebUI 7860、コンテナ内固定) ---
+# ホスト側ポートは希望値から空きへ自動インクリメント (並行 bootstrap で docker run
+# を落とさないため)。バッチ生成時はまだ誰も bind していないので、生成済み割当も
+# ASSIGNED_PORTS で重複チェックする。pick_free_port は PICKED_PORT に結果を返す
+# (subshell だと ASSIGNED_PORTS の更新が失われるため command substitution にしない)。
+ASSIGNED_PORTS=()
+port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+port_assigned() {
+  local q
+  for q in "${ASSIGNED_PORTS[@]:-}"; do [[ "$q" == "$1" ]] && return 0; done
+  return 1
+}
+pick_free_port() {
+  local p="$1"
+  local _i
+  for _i in $(seq 0 49); do
+    if ! port_in_use "$p" && ! port_assigned "$p"; then
+      ASSIGNED_PORTS+=("$p")
+      PICKED_PORT="$p"
+      return 0
+    fi
+    p=$((p + 1))
+  done
+  die "no free port found starting at $1"
+}
+tunnel_hint() {  # $1 = webui host port, $2 = report host port
+  log "remote host? tunnel with: ssh -L $1:localhost:$1 -L $2:localhost:$2 $(hostname -s)"
+}
 
 mkdir -p "$HOME/.claude"
 
@@ -431,12 +477,56 @@ clone_one() {
 }
 
 # ==========================================================================
+if [[ "$SERVE_MODE" == "1" ]]; then
+  # ---------- serve モード ----------
+  # 再現済み repo のレポート + 生成済み推論 WebUI を Claude Code 抜きで配信する。
+  # コンテナは scripts/serve.sh を main process としてフォアグラウンド実行
+  # (Ctrl+C で停止。常設するなら tmux / nohup で包む)。
+  [[ ${#URLS[@]} -eq 1 ]] || die "--serve takes exactly one repository (URL or repo name under $WORKSPACE_DIR)"
+  if [[ -d "$WORKSPACE_DIR/${URLS[0]}" ]]; then
+    REPO_NAME="${URLS[0]}"
+  else
+    REPO_NAME="$(clone_one "${URLS[0]}")"
+  fi
+  [[ -d "$WORKSPACE_DIR/$REPO_NAME/reports" ]] \
+    || die "no reports/ in $WORKSPACE_DIR/$REPO_NAME — reproduce it first (./bootstrap.sh <url> then /reimplement)"
+
+  pick_free_port "$WEBUI_PORT";  WEBUI_HOST_PORT="$PICKED_PORT"
+  pick_free_port "$REPORT_PORT"; REPORT_HOST_PORT="$PICKED_PORT"
+  log "serving $REPO_NAME (bind: $BIND_ADDR)"
+  log "report: http://localhost:${REPORT_HOST_PORT}/report.html"
+  log "webui:  http://localhost:${WEBUI_HOST_PORT}/ (only if reports/webui/ was generated)"
+  tunnel_hint "$WEBUI_HOST_PORT" "$REPORT_HOST_PORT"
+
+  TTY_FLAGS=(-i)
+  [[ -t 0 ]] && TTY_FLAGS=(-it)
+  exec docker run --rm "${TTY_FLAGS[@]}" \
+    -v "$WORKSPACE_DIR:/workspaces" \
+    -p "${BIND_ADDR}:${WEBUI_HOST_PORT}:7860" \
+    -p "${BIND_ADDR}:${REPORT_HOST_PORT}:8000" \
+    -e "WEBUI_HOST_PORT=${WEBUI_HOST_PORT}" \
+    -e "REPORT_HOST_PORT=${REPORT_HOST_PORT}" \
+    "${HF_TOKEN_FLAGS[@]}" \
+    "${HF_CACHE_MOUNT[@]}" \
+    -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
+    -w "/workspaces/$REPO_NAME" \
+    --shm-size=8g \
+    "${GPU_FLAGS[@]}" \
+    "$IMAGE_NAME" \
+    serve
+fi
+
 if [[ ${#URLS[@]} -eq 1 ]]; then
   # ---------- 単一モード ----------
   REPO_NAME="$(clone_one "${URLS[0]}")"
 
+  pick_free_port "$WEBUI_PORT";  WEBUI_HOST_PORT="$PICKED_PORT"
+  pick_free_port "$REPORT_PORT"; REPORT_HOST_PORT="$PICKED_PORT"
+
   log "starting interactive container at /workspaces/$REPO_NAME"
   log "inside Claude Code, run: /reimplement"
+  log "after /reimplement: report http://localhost:${REPORT_HOST_PORT}/report.html | webui http://localhost:${WEBUI_HOST_PORT}/"
+  tunnel_hint "$WEBUI_HOST_PORT" "$REPORT_HOST_PORT"
 
   exec docker run --rm -it \
     -v "$WORKSPACE_DIR:/workspaces" \
@@ -452,6 +542,10 @@ if [[ ${#URLS[@]} -eq 1 ]]; then
     "${ENV_FLAGS[@]}" \
     -e "REPORT_LANG=$REPORT_LANG" \
     -e "REPRODUCE_LEVEL=$REPRODUCE_LEVEL" \
+    -p "${BIND_ADDR}:${WEBUI_HOST_PORT}:7860" \
+    -p "${BIND_ADDR}:${REPORT_HOST_PORT}:8000" \
+    -e "WEBUI_HOST_PORT=${WEBUI_HOST_PORT}" \
+    -e "REPORT_HOST_PORT=${REPORT_HOST_PORT}" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$REPO_NAME" \
     --shm-size=8g \
@@ -471,6 +565,16 @@ REPO_NAMES=()
 for url in "${URLS[@]}"; do
   name="$(clone_one "$url")"
   REPO_NAMES+=("$name")
+done
+
+# repo ごとのホスト側ポートを親シェルで事前割当 (write_batch_script は
+# command substitution = subshell で走り ASSIGNED_PORTS を更新できないため)
+WEBUI_HOST_PORTS=()
+REPORT_HOST_PORTS=()
+for i in $(seq 0 $(( ${#REPO_NAMES[@]} - 1 ))); do
+  pick_free_port "$WEBUI_PORT";  WEBUI_HOST_PORTS+=("$PICKED_PORT")
+  pick_free_port "$REPORT_PORT"; REPORT_HOST_PORTS+=("$PICKED_PORT")
+  log "[${REPO_NAMES[i]}] report http://localhost:${REPORT_HOST_PORTS[i]}/report.html | webui http://localhost:${WEBUI_HOST_PORTS[i]}/"
 done
 
 # tmux に渡すコマンドを echo で 1 本の文字列に潰すと配列の quoting が失われ、
@@ -495,7 +599,17 @@ write_batch_script() {
     prefix=(flock -x "$LOCK_DIR/gpu-$gpu_idx.lock")
   fi
 
+  # ホスト側ポートは親シェルが事前割当した配列を参照する (この関数は
+  # command substitution = subshell で走るため、ここで pick_free_port を
+  # 呼ぶと ASSIGNED_PORTS の更新が失われ全 repo が同一ポートになる)
+  local webui_host_port="${WEBUI_HOST_PORTS[idx]}"
+  local report_host_port="${REPORT_HOST_PORTS[idx]}"
+
   local cmd=("${prefix[@]}" docker run --rm -it
+    -p "${BIND_ADDR}:${webui_host_port}:7860"
+    -p "${BIND_ADDR}:${report_host_port}:8000"
+    -e "WEBUI_HOST_PORT=${webui_host_port}"
+    -e "REPORT_HOST_PORT=${report_host_port}"
     -v "$WORKSPACE_DIR:/workspaces"
     -v "$HOME/.claude:/home/claude/.claude"
     "${CLAUDE_JSON_MOUNT[@]}"

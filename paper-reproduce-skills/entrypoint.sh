@@ -15,6 +15,13 @@ if [[ -n "$libc_ver" ]] && [[ "$(printf '%s\n2.31\n' "$libc_ver" | sort -V | hea
   echo "[entrypoint] WARN: libc $libc_ver < 2.31 — open3d 0.19+ may fail to install" >&2
 fi
 
+# serve モード: bootstrap.sh --serve が CMD 先頭に "serve" を渡す。Claude Code を
+# 起動せず、レポートサーバ + 生成済み WebUI の配信だけを行う (scripts/serve.sh)。
+if [[ "${1:-}" == "serve" ]]; then
+  shift
+  exec bash /paper-reproduce-skills/scripts/serve.sh "$@"
+fi
+
 # モデル/effort は bootstrap.sh が docker run の CMD 引数 (--model / --effort) として
 # 渡し、下の "$@" が claude に転送する (既定: opus[1m] × xhigh。opus[1m] は 1M context
 # の最新 Opus エイリアスで、現在は Claude Opus 4.8 に解決される)。CLI 引数は mount

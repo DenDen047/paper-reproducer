@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DenDen047/paper-reproducer/schemas/webui.schema.json",
+  "title": "webui.json (webui-builder 出力、templates/webui/app.py が読む)",
+  "description": "生成された推論 WebUI の宣言的設定。app.py は固定テンプレートで、repo 固有の情報はすべてこのファイルに載る。",
+  "type": "object",
+  "required": ["title", "workdir", "command_template", "inputs", "outputs"],
+  "properties": {
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "workdir": {
+      "description": "推論コマンドを実行する repo ルートの絶対パス (コンテナ内: /workspaces/<repo>)。",
+      "type": "string",
+      "pattern": "^/"
+    },
+    "command_template": {
+      "description": "Phase 3 で検証済みの推論コマンド。入力は {<input name>}、出力先は {output_dir} プレースホルダー。{output_dir} が無い場合、outputs[].glob は workdir 相対 + mtime フィルタで収集される。",
+      "type": "string",
+      "minLength": 1
+    },
+    "timeout_s": { "type": "integer", "minimum": 1 },
+    "example_input": {
+      "description": "サンプル入力 (workdir 相対パス、reports/samples/input/ 推奨)。単一入力 UI のときだけ Examples として表示される。",
+      "type": ["string", "null"]
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "label"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "type": { "enum": ["image", "video", "file", "files", "text"] },
+          "label": { "type": "string", "minLength": 1 },
+          "default": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "glob"],
+        "properties": {
+          "type": { "enum": ["image", "gallery", "video", "model3d", "file"] },
+          "glob": { "type": "string", "minLength": 1 },
+          "label": { "type": "string" }
+        }
+      }
+    }
+  }
+}

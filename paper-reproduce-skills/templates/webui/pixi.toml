@@ -1,0 +1,14 @@
+# WebUI 専用の pixi 環境 (再現対象 repo の環境とは意図的に分離)。
+# gradio が fastapi / pydantic 等を引き込むため、論文環境に混ぜると依存衝突の
+# 温床になる。推論本体は app.py が subprocess で repo 側の pixi 環境を呼ぶので、
+# この環境に必要なのは gradio だけ。
+[project]
+name = "paper-webui"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.11.*"
+
+[pypi-dependencies]
+gradio = ">=5,<6"

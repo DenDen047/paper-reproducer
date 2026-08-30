@@ -47,6 +47,7 @@
 4. **推論・デモを実行**: リポジトリに実行可能な経路があれば走らせます。
 5. **診断しながらリトライ**: 最初の環境構築失敗で止めず、原因を分類して次の手を試します。
 6. **レポートを生成**: 人間向けHTML、機械可読JSON、試行ログ、サンプルを残します。
+7. **結果を配信**: レポートと、生成した Gradio 推論 WebUI をコンテナ外からアクセスできる形で立ち上げます。
 
 ## Quick Start
 
@@ -88,9 +89,30 @@ $ ./bootstrap.sh --lang en https://github.com/some-user/some-paper.git
 | `reports/report.json` | 機械可読な再現結果 |
 | `reports/report.html` | 人間が確認しやすい再現レポート |
 | `reports/samples/` | 再現中に得られた入出力サンプル |
+| `reports/webui/` | 生成された推論 WebUI (設定 + 固定 Gradio アプリ + 専用 pixi 環境) |
 | `{repo}-{short_sha}.tar.gz` | 成功時の状態スナップショット |
 
 重要なのは「動いたかどうか」だけではありません。何を試し、何が通り、何で失敗し、次に何をすべきかが残ることです。
+
+## 推論 WebUI
+
+推論再現に成功すると、`/reimplement` は再現したモデルをブラウザから使える UI を `reports/webui/` に生成し、レポートと一緒に配信を開始します。
+
+- **CLI ラッパー方式**: リクエストごとに、Phase 3 で検証済みの推論コマンドを repo の pixi 環境で subprocess 実行します。モデル常駐より遅い（毎回重みをロード）代わりに、実際に成功したコマンドをそのまま使うので任意の repo で確実に動きます。
+- **設定駆動**: `app.py` は固定テンプレートで、repo 固有の情報はすべて `webui.json` に載ります（`schemas/webui.schema.json` で検証）。WebUI の pixi 環境は論文環境と分離されており、gradio が再現用 lockfile を汚しません。
+- **ポート**: コンテナ内は WebUI 7860 / レポート 8000 固定。`bootstrap.sh` がホスト側ポート（`WEBUI_PORT` / `REPORT_PORT`、使用中なら自動インクリメント）へ公開し、bind 先は `BIND_ADDR`（デフォルト `127.0.0.1`）です。
+
+再現済みの repo は、Claude Code 抜きでいつでも配信できます。
+
+```bash
+$ ./bootstrap.sh --serve some-paper       # WORKSPACE_DIR 配下の repo 名、または URL
+```
+
+リモート GPU マシンの場合はポートをトンネルして `http://localhost:7860/` を開きます。
+
+```bash
+$ ssh -L 7860:localhost:7860 -L 8000:localhost:8000 <gpu-host>
+```
 
 ## 仕組み
 
@@ -103,6 +125,7 @@ flowchart TD
     Gate -- 可 --> Build["環境構築<br/>Pixi env + lockfile<br/>解決できるまでリトライ"]
     Build --> Run["実行<br/>weights取得<br/>inference/demo実行<br/>OOM時は可能なら調整"]
     Run --> Report["レポート<br/>HTML + JSON + attempts.tsv + samples"]
+    Report --> Serve["配信<br/>レポート :8000 + 推論 WebUI :7860<br/>コンテナ外へ公開"]
 ```
 
 ## 対応する依存管理タイプ
@@ -151,6 +174,7 @@ GPU環境では、空いているGPUを `--gpus device=N` で割り当て、`flo
 | `--rebuild` | Docker image を強制再ビルド |
 | `--fresh` | 既存cloneを削除して再clone |
 | `--lang <code>` | レポート言語: `ja` または `en` |
+| `--serve` | 再現済み repo のレポート + 推論 WebUI を Claude Code 抜きで配信 |
 | `--list-assets` | 手動資産レジストリ（ライセンスゲートモデル）の状態を表示して終了 |
 | `-h`, `--help` | ヘルプ表示 |
 
@@ -159,6 +183,9 @@ GPU環境では、空いているGPUを `--gpus device=N` で割り当て、`flo
 | `WORKSPACE_DIR` | clone先。デフォルトは `~/paper-reproduce-workspaces` |
 | `MANUAL_ASSETS_DIR` | ライセンスゲート資産(SMPL/SMAL 等)の置き場。デフォルトは `./manual-assets`(gitignore 済み) |
 | `REPORT_LANG` | `--lang` と同じ。`--lang` が優先 |
+| `WEBUI_PORT` | 推論 WebUI のホスト側ポート。デフォルト `7860`（使用中なら自動インクリメント） |
+| `REPORT_PORT` | レポートサーバのホスト側ポート。デフォルト `8000`（使用中なら自動インクリメント） |
+| `BIND_ADDR` | 公開ポートの bind 先。デフォルト `127.0.0.1`（LAN 公開は `0.0.0.0`） |
 
 <!-- /AUTO-GENERATED -->
 

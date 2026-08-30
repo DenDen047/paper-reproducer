@@ -5,6 +5,30 @@
 
 ## [Unreleased]
 
+### Added — 推論 WebUI の生成とコンテナ外への配信
+
+再現実験の記録に加えて、**再現したモデルをブラウザから使える推論 WebUI** を成果物にする:
+
+- **`webui-builder` skill (新規)**: Phase 4 Step 1.65 として、Phase 3 で検証済みの推論コマンドを
+  包む Gradio WebUI を `reports/webui/` に生成する。CLI ラッパー方式 (リクエストごとに repo の
+  pixi 環境で subprocess 実行。毎回モデルをロードする代わりに任意 repo で確実に動く)。
+  `app.py` は固定テンプレート (`templates/webui/app.py`) で、repo 固有情報はすべて `webui.json` に
+  分離し `schemas/webui.schema.json` (新規) で検証する。WebUI の pixi 環境は論文環境と分離
+  (gradio の fastapi / pydantic 系依存を再現 lockfile に混ぜない)。生成後に `--smoke` (起動 →
+  HTTP 200 → 終了) を必ず通し、未通過の `generated: true` は `report.schema.json` の invariant
+  で封鎖。純粋ヘルパーは `tests/test_webui_app.py` (stdlib unittest) でカバー。
+- **`report.json.webui` (schema required)**: 生成した/しなかった/失敗したを常に記録
+  (`generated` / `config_path` / `port` / `smoke_test` / `reason`)。`usage.advanced` と
+  `next_actions` にも WebUI の使い方エントリを追加する。
+- **ポート公開**: `bootstrap.sh` が全モードで WebUI (コンテナ内 7860) とレポートサーバ
+  (同 8000) をホストへ `-p` 公開する。ホスト側ポートは `WEBUI_PORT` / `REPORT_PORT` (既定
+  7860 / 8000) から空きへ自動インクリメントし、bind 先は `BIND_ADDR` (既定 127.0.0.1 =
+  SSH トンネル経由のみ)。バッチモードは repo ごとに別ポートを事前割当する。
+- **`bootstrap.sh --serve <repo>` (新規)**: 再現済み repo のレポート + WebUI を Claude Code
+  抜きで配信する常設モード。コンテナ内の実体は `scripts/serve.sh` (新規、entrypoint の
+  `serve` 分岐から起動)。/reimplement 側も最終ステップ (Phase 4 Step 7、新規) で同じ
+  serve.sh を `--no-wait` 起動し、セッション中からレポートと WebUI にアクセスできる。
+
 ### Added — 推論レベルのレポートに推論実行時間を表示
 
 `REPRODUCE_LEVEL=inference` のとき、`report.json` に `inference_runtime_s` (推論そのものの

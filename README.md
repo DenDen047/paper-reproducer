@@ -47,6 +47,7 @@ Reproducing paper code is rarely blocked by one hard algorithmic problem. It is 
 4. **Run inference or demos** when the repo exposes a feasible path.
 5. **Retry with diagnostics** instead of stopping at the first environment failure.
 6. **Generate reports** for human review, machine processing, and future reproduction attempts.
+7. **Serve the results**: the report and a generated Gradio inference WebUI, reachable from outside the container.
 
 ## Quick Start
 
@@ -84,9 +85,30 @@ Each run leaves an audit trail under the reproduced repository:
 | `reports/report.json` | Machine-readable reproduction result |
 | `reports/report.html` | Human-readable report for review or client handoff |
 | `reports/samples/` | Input and output samples collected during reproduction |
+| `reports/webui/` | Generated inference WebUI (config + fixed Gradio app + its own pixi env) |
 | `{repo}-{short_sha}.tar.gz` | Success snapshot archive, written next to the workspace |
 
 The important output is not just "it ran." The important output is a reusable record of what was tried, what worked, what failed, and what should happen next.
+
+## Inference WebUI
+
+When inference reproduction succeeds, `/reimplement` also generates a browser UI for the reproduced model under `reports/webui/` and starts serving it together with the report:
+
+- **CLI-wrapper design**: each request re-runs the Phase-3-verified inference command via subprocess in the repo's pixi environment. Slower than a resident model (weights reload per request), but it works for arbitrary repos because the exact command already succeeded.
+- **Config-driven**: `app.py` is a fixed template; everything repo-specific lives in `webui.json` (validated against `schemas/webui.schema.json`). The UI's pixi environment is separate from the paper environment, so gradio never pollutes the reproduction lockfile.
+- **Ports**: inside the container the WebUI listens on 7860 and the report server on 8000. `bootstrap.sh` publishes them to host ports (`WEBUI_PORT` / `REPORT_PORT`, auto-incremented when busy) bound to `BIND_ADDR` (default `127.0.0.1`).
+
+Serve an already-reproduced repo any time, without Claude Code:
+
+```bash
+$ ./bootstrap.sh --serve some-paper       # repo name under WORKSPACE_DIR, or a URL
+```
+
+On a remote GPU box, tunnel the ports and open `http://localhost:7860/`:
+
+```bash
+$ ssh -L 7860:localhost:7860 -L 8000:localhost:8000 <gpu-host>
+```
 
 ## How It Works
 
@@ -99,6 +121,7 @@ flowchart TD
     Gate -- Yes --> Build["Build<br/>Pixi env + lockfile<br/>retry until resolvable"]
     Build --> Run["Run<br/>download weights<br/>execute inference/demo<br/>adapt for OOM when possible"]
     Run --> Report["Report<br/>HTML + JSON + attempts.tsv + samples"]
+    Report --> Serve["Serve<br/>report :8000 + inference WebUI :7860<br/>published outside the container"]
 ```
 
 ## Supported Dependency Types
@@ -147,6 +170,7 @@ Check status anytime with `./bootstrap.sh --list-assets`. Missing assets never b
 | `--rebuild` | Force Docker image rebuild |
 | `--fresh` | Remove existing clones and clone again |
 | `--lang <code>` | Report language: `ja` or `en` |
+| `--serve` | Serve an already-reproduced repo (report + inference WebUI) without Claude Code |
 | `--list-assets` | Show manual-asset registry status (license-gated models) and exit |
 | `-h`, `--help` | Show help |
 
@@ -155,6 +179,9 @@ Check status anytime with `./bootstrap.sh --list-assets`. Missing assets never b
 | `WORKSPACE_DIR` | Host clone directory, default `~/paper-reproduce-workspaces` |
 | `MANUAL_ASSETS_DIR` | Dir for license-gated assets (SMPL/SMAL, ...), default `./manual-assets` (gitignored) |
 | `REPORT_LANG` | Same as `--lang`; overridden by `--lang` |
+| `WEBUI_PORT` | Host port for the inference WebUI, default `7860` (auto-incremented when busy) |
+| `REPORT_PORT` | Host port for the report server, default `8000` (auto-incremented when busy) |
+| `BIND_ADDR` | Host bind address for published ports, default `127.0.0.1` (`0.0.0.0` exposes on the LAN) |
 
 <!-- /AUTO-GENERATED -->
 

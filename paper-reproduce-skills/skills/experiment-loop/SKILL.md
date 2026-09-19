@@ -232,7 +232,7 @@ pixi.toml / コマンド引数 / env var の変更で直る。
 |---|---|---|
 | HTTP 4xx / 5xx (transient) | `curl: (22)` / `404 Not Found` | tier1 (3 回まで自動 retry、URL の変動は README 代替リンク / GitHub release / mirror で補正) |
 | Direct DL URL 抽出失敗 (landing page しか取れない) | gdown / curl が exit≠0 で「URL not parseable」 | tier1 (= まず gdown --folder で folder ID を試す、README / page を grep して direct URL を抽出して再試行) |
-| GDrive レート制限 | `"but Gdown can't"` + `"domain administrator"` / `"too many users"` | tier3 (24h cooldown 必要)。**ただし `required_for_claims` 非空なら ScheduleWakeup で N 時間後に再試行を schedule** |
+| GDrive レート制限 | `"but Gdown can't"` + `"domain administrator"` / `"too many users"` | tier3 (24h cooldown 必要)。**ただし `required_for_claims` 非空なら `reimplement/SKILL.md` の「長時間処理の待機と idempotency」に従い N 時間後に再試行** |
 | HF gated repo | `401 Unauthorized` / `Repository not found` 系 | tier3 (`gated` カテゴリ、`next_actions` に手動認証手順)。試行は HfApi.repo_info で 1 回必須 |
 | 認証必要 | `403` / login redirect | tier3 (`gated`)、試行 1 回必須 |
 | 手動資産がレジストリに欠落 (SMPL/SMAL 系) | `/manual-assets/<candidate>` 不在 (provision_manual_assets.py が `missing_in_registry`) | tier3。**probe・自動 DL はしない**（トークンで解けず再配布禁止）。`next_actions` に取得 URL + 配置先。`required_for_claims` 空 → status=success 維持 / 非空 → `errors` に `manual_asset_missing` 追加し partial 候補（他経路で当該 claim を eval 可能なら維持）。詳細は `skills/manual-asset-provisioner/SKILL.md` |

@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- `--agent codex` / `PAPER_REPRODUCER_AGENT=codex` で Codex CLI を単一・tmux バッチの両方から起動。既定は Claude Code のまま。
+- Docker に Codex CLI と共有スキルの検出パスを追加。`$paper-reproduce:reimplement` は明示呼び出しのみで開始し、待機は利用可能なツールを使い、claim 判定は同梱の決定論的スクリプトを使う。
+- `CODEX_HOME` の設定・認証・更新トークンを引き継ぎ、古いイメージは自動再ビルド。Codex のモデル・reasoning effort はホスト設定を継承する。
+- CLI 選択・認証マウント・引数転送・GPU ロックの回帰テストと、両 CLI の Docker 起動チェックを CI に追加。
+
+### Fixed
+
+- 既存の tmux 起動スクリプトを維持し、Codex 設定ディレクトリと Bash 3.2 の空配列展開に対応。
+
 ### Changed — コンテナのモデルを Opus に固定
 
 host の `~/.claude/settings.json` の model (現在 fable-5) を継承する設計をやめ、

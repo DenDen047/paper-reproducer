@@ -20,7 +20,7 @@
   <img alt="Status: early OSS" src="https://img.shields.io/badge/status-early_OSS-2ea44f">
 </p>
 
-`paper-reproducer` は、GitHub上のCV論文リポジトリを再現するための Claude Code プラグインです。対象リポジトリをcloneし、依存ファイルを解析し、Pixi環境へ変換し、実行可能な推論・デモ経路を走らせ、失敗時は診断しながらリトライし、最後に再現レポートを出力します。
+`paper-reproducer` は、Claude Code または Codex CLI を使って GitHub上のCV論文リポジトリを再現するツールです。対象リポジトリをcloneし、依存ファイルを解析し、Pixi環境へ変換し、実行可能な推論・デモ経路を走らせ、失敗時は診断しながらリトライし、最後に再現レポートを出力します。
 
 狙っているのは、AIコンサル・受託開発・応用研究で毎回重くなる「この論文コードは動くのか」「どこで詰まるのか」「顧客やチームに渡せる根拠は何か」を短時間で見える化することです。
 
@@ -53,7 +53,7 @@
 前提ツール:
 
 - Docker
-- Claude Code
+- Claude Code または Codex のアカウント（両 CLI は Docker イメージに同梱）
 - Python 3
 - GPUを使う場合は NVIDIA Container Toolkit
 - バッチモードでは `tmux` と `flock`
@@ -75,6 +75,34 @@ Claude Code がコンテナ内で起動したら、次を実行します。
 ```bash
 $ ./bootstrap.sh --lang en https://github.com/some-user/some-paper.git
 ```
+
+### Codex を使う
+
+`--agent codex` で切り替えます。
+
+```bash
+./bootstrap.sh --agent codex https://github.com/some-user/some-paper.git
+```
+
+コンテナ内で Codex が起動したら、次を実行します。
+
+```text
+$paper-reproduce:reimplement
+```
+
+Claude Code と同じスキル・スキーマ・レポートテンプレートを使います。Codex 対応前のイメージは自動で再ビルドされます。既定は Claude Code で、`--agent claude` でも明示できます。
+
+ホストの `${CODEX_HOME:-~/.codex}` を読み書き可能な状態でマウントし、設定・ログイン情報・更新されたトークンを引き継ぎます。モデルと reasoning effort は `config.toml` の設定に従います。コンテナ内ではファイル形式の認証情報を使うため、ホストのログインが OS のキーチェーンに保存されている場合は、先に次を実行してください。
+
+```bash
+codex -c 'cli_auth_credentials_store="file"' login
+# API キーで認証する場合は標準入力から渡す:
+printenv OPENAI_API_KEY | codex -c 'cli_auth_credentials_store="file"' login --with-api-key
+```
+
+ログイン情報が無い場合は、コンテナ内で **Sign in with Device Code** を選択できます（[Codex の認証手順](https://learn.chatgpt.com/docs/auth#login-on-headless-devices)）。コンテナ用の設定を分ける場合は `CODEX_HOME` に別ディレクトリを指定してください。選択した設定にホスト固有の MCP コマンド・フック・絶対パスがある場合、Linux コンテナ内でも使える必要があります。マウントする設定ディレクトリは選択した CLI のものだけです。
+
+両 CLI とも内部の承認プロンプトを無効にし、Docker を実行境界として動作します。マウント先は書き込み可能です。Codex 用スキルは公式の[スキル検出パス](https://learn.chatgpt.com/docs/build-skills#where-to-save-skills)である `/etc/codex/skills` から読み込みます。
 
 ## 出力例
 
@@ -125,9 +153,12 @@ flowchart TD
 ```bash
 ./bootstrap.sh url1.git url2.git url3.git
 ./bootstrap.sh --repos repos.txt
+./bootstrap.sh --agent codex --repos repos.txt
 ```
 
 GPU環境では、空いているGPUを `--gpus device=N` で割り当て、`flock` により1つのGPUスロットを1ジョブだけが使うようにします。
+
+各ウィンドウは対話式です。Claude Code では `/reimplement`、Codex では `$paper-reproduce:reimplement` を入力してください。
 
 ## ライセンスゲート資産 (SMPL, SMAL, ...)
 
@@ -147,15 +178,19 @@ GPU環境では、空いているGPUを `--gpus device=N` で割り当て、`flo
 
 | オプション | 役割 |
 |---|---|
+| `--agent <name>` | 使用する CLI。`claude`（既定）または `codex` |
 | `--repos <file>` | URLをファイルから読み込む |
 | `--rebuild` | Docker image を強制再ビルド |
 | `--fresh` | 既存cloneを削除して再clone |
+| `--full` | 学習と claim の定量検証まで実行（両エージェント共通） |
 | `--lang <code>` | レポート言語: `ja` または `en` |
 | `--list-assets` | 手動資産レジストリ（ライセンスゲートモデル）の状態を表示して終了 |
 | `-h`, `--help` | ヘルプ表示 |
 
 | 環境変数 | 役割 |
 |---|---|
+| `PAPER_REPRODUCER_AGENT` | 既定の CLI。`--agent` が優先 |
+| `CODEX_HOME` | ホストの Codex 設定・認証ディレクトリ。既定は `~/.codex` |
 | `WORKSPACE_DIR` | clone先。デフォルトは `~/paper-reproduce-workspaces` |
 | `MANUAL_ASSETS_DIR` | ライセンスゲート資産(SMPL/SMAL 等)の置き場。デフォルトは `./manual-assets`(gitignore 済み) |
 | `REPORT_LANG` | `--lang` と同じ。`--lang` が優先 |
@@ -194,10 +229,12 @@ GPU環境では、空いているGPUを `--gpus device=N` で割り当て、`flo
 - コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) に従います。
 - バージョニングは [Semantic Versioning 2.0.0](https://semver.org/lang/ja/) に従います。
 - リリースノートは [CHANGELOG.md](./CHANGELOG.md) を参照してください。
+- テストは `pytest -q tests/` で実行します（導入は `pixi global install pytest`）。起動テストでは CLI を置き換えるため Docker・GPU・認証情報は不要です。`CODEX_BINARY=codex pytest -q tests/` では実際の Codex によるスキル検出も確認します。CI ではこれらに加え、イメージのビルドと両 CLI の起動を確認します。
 
 ## References
 
 - [Pixi](https://pixi.sh/)
 - [Claude Code](https://www.claude.com/product/claude-code)
+- [Codex CLI](https://learn.chatgpt.com/docs/cli)
 - [karpathy/autoresearch](https://github.com/karpathy/autoresearch)
 - [denkiwakame - Pixi Advent Calendar 2024](https://denkiwakame.notion.site/2ba3175c6b6a80d19141f5407c39ad4e?v=2ba3175c6b6a80a7acfe000c6c1b2117)

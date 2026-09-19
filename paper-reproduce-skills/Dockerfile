@@ -1,5 +1,7 @@
 FROM ghcr.io/prefix-dev/pixi:jammy
 
+LABEL paper-reproducer.agents="claude,codex"
+
 # CV論文リポジトリは libgl, ffmpeg 等を暗黙に要求することが多い
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -22,6 +24,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . /paper-reproduce-skills
+
+# Codex の admin skill 検出パス。Claude と同じ原本を読み、対象 repo を汚さない。
+RUN mkdir -p /etc/codex \
+    && ln -s /paper-reproduce-skills/skills /etc/codex/skills
 
 RUN mkdir -p /etc/headless_patches \
     && cp /paper-reproduce-skills/headless_patch.py /etc/headless_patches/headless_patch.py \
@@ -71,6 +77,10 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # 無いと "gh/jq が無く Phase 4 では関連 Issue 検索をスキップ" になる。
 # pixi-only ポリシーに従い conda-forge から入れる (apt/brew は使わない)。
 RUN pixi global install rtk-cli check-jsonschema gh jq
+
+# conda-forge の native CLI を使い、npm global の更新権限問題を避ける。
+ARG CODEX_VERSION=0.154.0
+RUN pixi global install "codex=${CODEX_VERSION}"
 
 ENV PATH=/home/claude/.pixi/bin:/home/claude/.local/bin:$PATH
 

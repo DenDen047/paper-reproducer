@@ -1,6 +1,6 @@
 ---
 name: reimplement
-description: User-invoked orchestration to fully reproduce a CV paper GitHub repository (clone → dep analysis → Pixi env build → inference/training → report). Triggers ONLY when the user types `/reimplement` or `/paper-reproduce:reimplement`. Do NOT auto-invoke based on description match — this skill executes side-effectful operations (git clone, Pixi env build, multi-hour training, archive creation). CWD must be a clone of the target repository. Phase 1 / Phase 4 are gated by JSON Schema validation (schemas/analysis.schema.json, schemas/report.schema.json) to prevent 4 known judgment errors (samples mesh+.ply / paper_claims empty without reason / reproduction_mode mis-classification / feasibility.blockers schema drift).
+description: User-invoked CV paper reproduction (dependency analysis → Pixi environment → inference/training → validated report). Start only on explicit /reimplement or /paper-reproduce:reimplement in Claude Code, or $paper-reproduce:reimplement in Codex. CWD must be a clone of the target repository. Executes environment builds, potentially multi-hour training, commits, and archives.
 disable-model-invocation: true
 allowed-tools: Bash Read Write Edit Glob Grep Agent
 ---
@@ -21,6 +21,12 @@ Phase 0 → Phase 4 を順に実行する。**詳細ロジックは下位スキ�
 | `full` | 学習 + eval + claim 定量評価まで含むフル検証 | 条件を満たせば必ず起動 |
 
 どちらのレベルでも `report.json.reproduce_level` に値を記録する (schema required)。inference の success は「推論再現の成功」であり claim 検証を含意しない — その区別は `reproduce_level` と `claims_verification[].status=not_evaluated` がレポート上で明示する。
+
+## Claude Code / Codex 共通の実行契約
+
+Docker 内の `/paper-reproduce-skills` をスキル・scripts・schemas・templates の基準ディレクトリとする。本書の `skills/...` などはこのディレクトリから解決し、作業ディレクトリは再現対象 repo のまま保つ。下位スキルは該当 `SKILL.md` を読み、同じエージェントで実行できる。frontmatter の `allowed-tools` は Claude Code 用の名前であり、Codex では実際に提供されたシェル・ファイル編集・画像確認ツールを使う。
+
+`ScheduleWakeup` が無い場合は以下の待機手順を使う。claim の判定は両クライアントとも同梱の `scripts/check_claims.py` に委ねる。
 
 ## Phase 契約一覧 (compact reference)
 
@@ -76,8 +82,8 @@ ls                                              # 依存ファイル一覧 (Phas
 
 ```bash
 # 1. git identity
-git config user.email >/dev/null 2>&1 || git config user.email "claude@anthropic.com"
-git config user.name  >/dev/null 2>&1 || git config user.name  "Claude"
+git config user.email >/dev/null 2>&1 || git config user.email "paper-reproducer@localhost"
+git config user.name  >/dev/null 2>&1 || git config user.name  "Paper Reproducer"
 
 # 2. キャッシュ書き込み権限 (.cache 不可なら HF_HOME / TORCH_HOME / MPLCONFIGDIR を /tmp に逃がす)
 for d in "$HOME/.cache" /tmp; do [ -w "$d" ] || echo "WARN: $d not writable"; done
@@ -225,7 +231,7 @@ attempt loop 開始前に必ず実施し、**物理的成果物として `report
    }
    ```
 3. 抽出が困難 (configs / README に明示なし、CLI default のみ) の場合は `defaults={}` で保存し、`notes` に「argparse default に委ねる」旨を記録。空の `_paper_default_args.json` を残すこと自体は許可される (= Step 3a 完了の証跡)
-4. **MUST NOT**: `_paper_default_args.json` を作らずに Step 3b に進む / 抽出値を Claude が "smoke 用に縮小" して保存する (= 改ざん)
+4. **MUST NOT**: `_paper_default_args.json` を作らずに Step 3b に進む / 抽出値をエージェントが "smoke 用に縮小" して保存する (= 改ざん)
 
 #### Step 3b: paper-default attempt + experiment-loop
 
@@ -290,11 +296,13 @@ mkdir -p reports/eval
 pixi run python {eval_command} 2>&1 | tee reports/eval/run.log
 ```
 
-**(2) observed 抽出 (zero-context サブエージェント)**: metric 名一覧だけを渡し (**paper_target は渡さない** = 目標値へ数字を寄せるバイアスの遮断)、`Agent` tool で新規サブエージェントに抽出させる:
+**(2) observed 抽出 (zero-context サブエージェント)**: metric 名一覧だけを渡し (**paper_target は渡さない** = 目標値へ数字を寄せるバイアスの遮断)、利用中のクライアントのサブエージェント機能（Claude Code の `Agent`、Codex の `spawn_agent` 等）で、会話を継承しない新規サブエージェントに抽出させる:
 
 ```bash
 jq '{results: [.paper_claims[] | {id, metric_name}]}' reports/analysis.json > reports/_claims_metrics.json
 ```
+
+サブエージェント機能が提供されていない場合は `reports/_observed.json` に `{"results": []}` を保存し、その制約を記録して (3) へ進む。親エージェントの自己申告で実測値を埋めない。
 
 サブエージェントへの指示 (会話 context を持たない新規 Agent で実行):
 - 入力: `reports/_claims_metrics.json` の metric 一覧と `reports/eval/` 以下のファイルのみ。それ以外の事前情報を与えない
@@ -325,9 +333,9 @@ fi
 
 `claims_verification[]` の status enum は `schemas/report.schema.json` で enforce。`status ∈ {matched, within_tolerance}` の行は `observed` / `evidence_path` 非 null が schema で必須 (= 根拠なしの「再現成功」はゲートを通らない)。
 
-### ScheduleWakeup の使い方 (P3-B との組み合わせ)
+### 長時間処理の待機 (P3-B との組み合わせ)
 
-数時間の training は `ScheduleWakeup` で待つ。prompt に **「もし既に完了していたら status だけ報告して終了 — do NOT re-run」** を必ず含める (race ahead 防止)。詳細は下記「核心原則 § Wakeup idempotency」。
+数時間の training は下記「核心原則 § 長時間処理の待機と idempotency」に従って待つ。完了済みの処理を再起動せず、保存済み PID・終了コード・ログから後続 Phase を再開する。
 
 ---
 
@@ -398,7 +406,7 @@ pixi run python /paper-reproduce-skills/scripts/snapshot_env.py reports/environm
 | `hardware` | GPU/CPU/RAM/disk 不足 (= 強い PC で動く)。`errors[]` に `OOM`, `no kernel image`, `gpu_arch_incompatible` (Step 4 まで失敗), `disk_full`, `vram_insufficient` | 橙 |
 | `fixable` | 設定/コード/依存修正で動く。`broken_setup_script`, `syntax_error`, `version_mismatch` 等。Tier 0 / 1 / 2-config 主因 | 黄 |
 
-**MUST**: `errors[]` が空でも `status != success` なら何かしら判定 (Phase 2 SegFault 等の未分類は `fixable`)。判定は `errors[]` と `attempts.tsv` から Claude が推論 (機械的ヒューリスティクスではなく文脈判断)。
+**MUST**: `errors[]` が空でも `status != success` なら何かしら判定 (Phase 2 SegFault 等の未分類は `fixable`)。判定は `errors[]` と `attempts.tsv` からエージェントが推論 (機械的ヒューリスティクスではなく文脈判断)。
 
 ### Step 1.8: 関連 GitHub Issue / PR の集約検索
 
@@ -634,7 +642,7 @@ Archive: {archive_path or "(not created; Phase 1 infeasible)"}
 **実行時間の扱い**:
 
 - 推論 1 回が数分→1 時間でも、デフォルトで完走させる (= 待つ)
-- training は `ScheduleWakeup` で待つ。8 時間でも問題ない (Phase 3.5 と同じ運用)
+- training は下記の待機手順で待つ。8 時間でも問題ない (Phase 3.5 と同じ運用)
 - 「時間がかかる」だけを理由に `status=partial` / `failed` にしない (= 失敗判定は claim 達成可否のみ、所要時間で決まらない)
 - `experiment-loop` の tier 判定に**実行時間は影響しない** (= 数時間かかっても tier0/1/2 にならない)
 
@@ -649,7 +657,9 @@ OK: curl -o /workspaces/.../data/Points.zip URL &
 
 repo 内ツールが相対パス前提なら `(cd repo && tool args)` でサブシェルに閉じ込める。
 
-### ScheduleWakeup の idempotency (P3-B)
+### 長時間処理の待機と idempotency (P3-B)
+
+利用中のクライアントに `ScheduleWakeup` が実在する場合は次のパターンを使う。
 
 ```
 ScheduleWakeup({
@@ -661,7 +671,9 @@ ScheduleWakeup({
 })
 ```
 
-Phase 3 長期 DL / Phase 3.5 training を待つ場合は必ずこのパターン。
+`ScheduleWakeup` が無い場合（Codex CLI など）は、シェルツールが返した実行セッションを保持し、提供された待機・出力取得ツールで同じ処理を追跡する。background 実行なら実 PID・ログ・終了コードを repo の `reports/` に保存し、`scripts/training_watcher.py` の監視結果も確認する。1 回の待機は 60 秒以内とし、完了まで繰り返す。セッションが失われても PID と成果物を確認してから再開し、同じ学習を重複起動しない。
+
+数時間後の再試行にも同じルールを適用する。起床ツールが無ければ実行セッション内で待機を継続し、予約が作られたとは報告しない。
 
 ### Watcher loop は実 PID 監視 (P3-A2)
 

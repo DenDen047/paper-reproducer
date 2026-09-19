@@ -3,6 +3,11 @@
 # claude ユーザーが .cache 配下に書けなくなる。起動時にその所有権を戻す保険
 set -e
 
+case "${PAPER_REPRODUCER_AGENT:-claude}" in
+  claude|codex) ;;
+  *) echo "[entrypoint] unsupported agent: $PAPER_REPRODUCER_AGENT (expected: claude | codex)" >&2; exit 1 ;;
+esac
+
 for d in /home/claude/.cache /home/claude/.cache/rattler; do
   if [[ -d "$d" ]] && [[ "$(stat -c %U "$d" 2>/dev/null)" != "claude" ]]; then
     sudo chown claude:claude "$d" 2>/dev/null || true
@@ -22,7 +27,19 @@ fi
 # は継承しない。古い Claude Code (<2.1.144) + サブスク(OAuth)認証では
 # "400 role 'system' is not supported on this model" を返すため、image 内の
 # claude が新しいことが前提 (Dockerfile の CLAUDE_CODE_BUILD cache-bust で担保)。
-exec claude \
-  --dangerously-skip-permissions \
-  --plugin-dir /paper-reproduce-skills \
-  "$@"
+case "${PAPER_REPRODUCER_AGENT:-claude}" in
+  claude)
+    exec claude \
+      --dangerously-skip-permissions \
+      --plugin-dir /paper-reproduce-skills \
+      "$@"
+    ;;
+  codex)
+    # Docker を実行境界とする (Claude と同じ運用)。モデル・effort は host 設定を継承。
+    # host の keyring は Linux container から見えないため共有 auth.json を使う。
+    exec codex \
+      --dangerously-bypass-approvals-and-sandbox \
+      -c 'cli_auth_credentials_store="file"' \
+      "$@"
+    ;;
+esac

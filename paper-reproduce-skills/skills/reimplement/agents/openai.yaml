@@ -1,0 +1,6 @@
+interface:
+  display_name: "Paper Reproducer"
+  short_description: "Reproduce a CV paper repository with Pixi and an audit report"
+  default_prompt: "Use $paper-reproduce:reimplement to reproduce the paper repository in the current directory."
+policy:
+  allow_implicit_invocation: false

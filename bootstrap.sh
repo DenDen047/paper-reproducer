@@ -47,6 +47,7 @@ REPRODUCE_LEVEL="${REPRODUCE_LEVEL:-inference}"
 # claude に転送するため、既存 image のまま (再ビルドなしで) 効く。
 REPRODUCE_MODEL="${REPRODUCE_MODEL:-opus[1m]}"
 REPRODUCE_EFFORT="${REPRODUCE_EFFORT:-xhigh}"
+AGENT="${PAPER_REPRODUCER_AGENT:-claude}"
 
 usage() {
   cat <<EOF
@@ -58,6 +59,7 @@ Run /reimplement on one or more repositories.
   2+ URLs parallel batch (GPUs round-robin)
 
 Options:
+  --agent <name>     Agent CLI: claude (default) | codex
   --repos <file>     Read URLs from file
   --rebuild          Force Docker image rebuild
   --fresh            Re-clone over existing clones
@@ -68,6 +70,8 @@ Options:
   -h, --help         Show this help
 
 Environment:
+  PAPER_REPRODUCER_AGENT  Same as --agent; overridden by --agent
+  CODEX_HOME        Host Codex config/auth dir (default: ~/.codex)
   WORKSPACE_DIR         Host clone dir (default: ~/paper-reproduce-workspaces)
   MANUAL_ASSETS_DIR     License-gated asset dir (default: ./manual-assets, gitignored)
   MANUAL_ASSETS_STAGING Non-FUSE staging copy for Docker mount
@@ -80,6 +84,7 @@ Environment:
 
 Examples:
   ./bootstrap.sh https://github.com/user/repo.git
+  ./bootstrap.sh --agent codex https://github.com/user/repo.git
   ./bootstrap.sh url1.git url2.git url3.git
   ./bootstrap.sh --repos repos.txt
 EOF
@@ -91,6 +96,11 @@ die() { printf '[bootstrap] error: %s\n' "$*" >&2; exit 1; }
 # --- 引数のパース ---
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --agent)
+      [[ $# -ge 2 ]] || die "--agent requires an argument (claude|codex)"
+      AGENT="$2"; shift 2 ;;
+    --agent=*)
+      AGENT="${1#*=}"; shift ;;
     --rebuild) REBUILD=1; shift ;;
     --fresh)   FRESH=1; shift ;;
     --full)    REPRODUCE_LEVEL=full; shift ;;
@@ -114,6 +124,12 @@ done
 while [[ $# -gt 0 ]]; do
   URLS+=("$1"); shift
 done
+
+case "$AGENT" in
+  claude) AGENT_NAME="Claude Code"; SKILL_COMMAND='/reimplement' ;;
+  codex)  AGENT_NAME="Codex"; SKILL_COMMAND="\$paper-reproduce:reimplement" ;;
+  *) die "unsupported --agent '$AGENT' (expected: claude | codex)" ;;
+esac
 
 if [[ -n "$REPOS_FILE" ]]; then
   [[ -f "$REPOS_FILE" ]] || die "repos file not found: $REPOS_FILE"
@@ -155,11 +171,13 @@ case "$REPRODUCE_LEVEL" in
 esac
 log "reproduce level: $REPRODUCE_LEVEL"
 
-case "$REPRODUCE_EFFORT" in
-  low|medium|high|xhigh|max) ;;
-  *) die "unsupported REPRODUCE_EFFORT '$REPRODUCE_EFFORT' (expected: low | medium | high | xhigh | max)" ;;
-esac
-log "claude model: $REPRODUCE_MODEL (effort: $REPRODUCE_EFFORT)"
+if [[ "$AGENT" == "claude" ]]; then
+  case "$REPRODUCE_EFFORT" in
+    low|medium|high|xhigh|max) ;;
+    *) die "unsupported REPRODUCE_EFFORT '$REPRODUCE_EFFORT' (expected: low | medium | high | xhigh | max)" ;;
+  esac
+  log "claude model: $REPRODUCE_MODEL (effort: $REPRODUCE_EFFORT)"
+fi
 
 # --- 事前チェック（共通）---
 command -v git     >/dev/null 2>&1 || die "git not found on PATH"
@@ -173,15 +191,21 @@ command -v python3 >/dev/null 2>&1 || die "python3 not found on PATH (required f
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 IMAGE_UID_LABEL=""
+IMAGE_AGENTS_LABEL=""
 if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
   IMAGE_UID_LABEL="$(docker image inspect "$IMAGE_NAME" \
     --format '{{ index .Config.Labels "host.uid" }}{{":"}}{{ index .Config.Labels "host.gid" }}' 2>/dev/null || true)"
+  IMAGE_AGENTS_LABEL="$(docker image inspect "$IMAGE_NAME" \
+    --format '{{ index .Config.Labels "paper-reproducer.agents" }}' 2>/dev/null || true)"
 fi
 NEED_BUILD=0
 if [[ "$REBUILD" == "1" ]]; then NEED_BUILD=1
 elif ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then NEED_BUILD=1
 elif [[ "$IMAGE_UID_LABEL" != "${HOST_UID}:${HOST_GID}" ]]; then
   log "image was built with UID/GID '$IMAGE_UID_LABEL', host is '${HOST_UID}:${HOST_GID}' — rebuilding"
+  NEED_BUILD=1
+elif [[ "$IMAGE_AGENTS_LABEL" != "claude,codex" ]]; then
+  log "image predates agent selection — rebuilding"
   NEED_BUILD=1
 fi
 if [[ "$NEED_BUILD" == "1" ]]; then
@@ -237,13 +261,33 @@ fi
 LOCK_DIR="${LOCK_DIR:-/tmp/paper-reproduce-locks}"
 mkdir -p "$LOCK_DIR"
 
-mkdir -p "$HOME/.claude"
-
-# --- Claude 設定ファイルのマウント ---
-CLAUDE_JSON_MOUNT=()
-if [[ -f "$HOME/.claude.json" ]]; then
-  CLAUDE_JSON_MOUNT=(-v "$HOME/.claude.json:/home/claude/.claude.json")
-fi
+# 選んだ CLI の設定・認証だけを渡す。ディレクトリを RW で mount することで
+# OAuth refresh の atomic rename と次回起動時の再利用を可能にする。
+AGENT_MOUNTS=()
+AGENT_ENV=(-e "PAPER_REPRODUCER_AGENT=$AGENT")
+case "$AGENT" in
+  claude)
+    AGENT_CONFIG_DIR="$HOME/.claude"
+    mkdir -p "$AGENT_CONFIG_DIR"
+    AGENT_MOUNTS=(-v "$AGENT_CONFIG_DIR:/home/claude/.claude")
+    if [[ -f "$HOME/.claude.json" ]]; then
+      AGENT_MOUNTS+=(-v "$HOME/.claude.json:/home/claude/.claude.json")
+    fi
+    if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+      AGENT_ENV+=(-e ANTHROPIC_API_KEY)
+    fi
+    ;;
+  codex)
+    AGENT_CONFIG_DIR="${CODEX_HOME:-$HOME/.codex}"
+    mkdir -p "$AGENT_CONFIG_DIR"
+    AGENT_CONFIG_DIR="$(cd "$AGENT_CONFIG_DIR" && pwd)"
+    AGENT_MOUNTS=(-v "$AGENT_CONFIG_DIR:/home/claude/.codex")
+    AGENT_ENV+=(-e CODEX_HOME=/home/claude/.codex)
+    if [[ ! -f "$AGENT_CONFIG_DIR/auth.json" ]]; then
+      log 'Codex auth.json not found; sign in using Device Code in the container, or run on the host: codex -c cli_auth_credentials_store=\"file\" login'
+    fi
+    ;;
+esac
 
 # --- gh 認証トークンの伝播 ---
 # コンテナには ~/.config/gh をマウントしないので、host で認証済みの gh から
@@ -362,17 +406,13 @@ if [[ -f "$MANUAL_ASSETS_SCRIPT" ]]; then
     | while IFS= read -r _line; do log "$_line"; done || true
 fi
 
-# --- ANTHROPIC_API_KEY 伝播 (single / batch 共通) ---
-# 値はコマンドラインに出さず env 名のみ渡す (GH_TOKEN と同じ流儀)。
-ENV_FLAGS=()
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-  ENV_FLAGS+=(-e ANTHROPIC_API_KEY)
-fi
-
 # --- コンテナ内 claude への CLI 引数 (single / batch 共通) ---
 # image 名の後ろに置くと docker の CMD になり、entrypoint.sh の "$@" が claude に
 # 転送する。CLI 引数は mount された settings.json の model 設定より優先される。
-CLAUDE_ARGS=(--model "$REPRODUCE_MODEL" --effort "$REPRODUCE_EFFORT")
+AGENT_ARGS=()
+if [[ "$AGENT" == "claude" ]]; then
+  AGENT_ARGS=(--model "$REPRODUCE_MODEL" --effort "$REPRODUCE_EFFORT")
+fi
 
 # --- TERM/COLORTERM 伝播 ---
 # 未設定だと Docker が TERM=dumb を渡し、Claude Code の Ink TUI が描画されない。
@@ -381,27 +421,31 @@ if [[ -n "${COLORTERM:-}" ]]; then
   TERM_ENV+=(-e "COLORTERM=${COLORTERM}")
 fi
 
-# --- ~/.claude 配下の symlink 解決用マウント ---
-# dotter 等で ~/.claude/{settings.json,skills/*,CLAUDE.md} が外部 dir への
+# --- 選択した CLI の設定ディレクトリ配下の symlink 解決用マウント ---
+# dotter 等で settings.json / config.toml / skills が外部 dir への
 # symlink になっている場合、マウントしただけだとコンテナ内で切れている。
 # 同一パスに read-only でマウントすれば symlink がそのまま辿れる。
 SYMLINK_MOUNTS=()
-if [[ -d "$HOME/.claude" ]]; then
-  declare -A _seen=()
+if [[ -d "$AGENT_CONFIG_DIR" ]]; then
+  _seen=()
   while IFS= read -r -d '' link; do
     target="$(readlink -f "$link" 2>/dev/null || true)"
     [[ -z "$target" ]] && continue
-    [[ "$target" == "$HOME/.claude"* ]] && continue
-    [[ "$target" == "$HOME/.claude.json" ]] && continue
+    [[ "$AGENT" != "claude" || "$target" != "$HOME/.claude.json" ]] || continue
     while [[ "$target" != "/" && "$target" != "$HOME" ]]; do
       parent="$(dirname "$target")"
       [[ "$parent" == "$HOME" || "$parent" == "/" ]] && break
       target="$parent"
     done
-    [[ -z "${_seen[$target]:-}" && -e "$target" ]] || continue
-    _seen[$target]=1
+    [[ -e "$target" ]] || continue
+    _duplicate=0
+    for _mounted in ${_seen[@]+"${_seen[@]}"}; do
+      [[ "$_mounted" != "$target" ]] || _duplicate=1
+    done
+    [[ "$_duplicate" == "0" ]] || continue
+    _seen+=("$target")
     SYMLINK_MOUNTS+=(-v "$target:$target:ro")
-  done < <(find "$HOME/.claude" -maxdepth 4 -type l -print0 2>/dev/null)
+  done < <(find "$AGENT_CONFIG_DIR" -maxdepth 4 -type l -print0 2>/dev/null)
 fi
 
 # --- ヘルパー: 1 repo の clone（ホスト側）---
@@ -430,34 +474,34 @@ clone_one() {
   printf '%s\n' "$name"
 }
 
+# Bash 3.2 + nounset treats an empty array as unset; optional arrays below use the + guard.
 # ==========================================================================
 if [[ ${#URLS[@]} -eq 1 ]]; then
   # ---------- 単一モード ----------
   REPO_NAME="$(clone_one "${URLS[0]}")"
 
   log "starting interactive container at /workspaces/$REPO_NAME"
-  log "inside Claude Code, run: /reimplement"
+  log "inside $AGENT_NAME, run: $SKILL_COMMAND"
 
   exec docker run --rm -it \
     -v "$WORKSPACE_DIR:/workspaces" \
-    -v "$HOME/.claude:/home/claude/.claude" \
-    "${CLAUDE_JSON_MOUNT[@]}" \
-    "${SYMLINK_MOUNTS[@]}" \
+    "${AGENT_MOUNTS[@]}" \
+    "${AGENT_ENV[@]}" \
+    ${SYMLINK_MOUNTS[@]+"${SYMLINK_MOUNTS[@]}"} \
     "${TERM_ENV[@]}" \
-    "${GH_TOKEN_FLAGS[@]}" \
-    "${HF_TOKEN_FLAGS[@]}" \
-    "${HF_CACHE_MOUNT[@]}" \
-    "${MANUAL_ASSETS_MOUNT[@]}" \
-    "${MANUAL_ASSETS_ENV[@]}" \
-    "${ENV_FLAGS[@]}" \
+    ${GH_TOKEN_FLAGS[@]+"${GH_TOKEN_FLAGS[@]}"} \
+    ${HF_TOKEN_FLAGS[@]+"${HF_TOKEN_FLAGS[@]}"} \
+    ${HF_CACHE_MOUNT[@]+"${HF_CACHE_MOUNT[@]}"} \
+    ${MANUAL_ASSETS_MOUNT[@]+"${MANUAL_ASSETS_MOUNT[@]}"} \
+    ${MANUAL_ASSETS_ENV[@]+"${MANUAL_ASSETS_ENV[@]}"} \
     -e "REPORT_LANG=$REPORT_LANG" \
     -e "REPRODUCE_LEVEL=$REPRODUCE_LEVEL" \
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler" \
     -w "/workspaces/$REPO_NAME" \
     --shm-size=8g \
-    "${GPU_FLAGS[@]}" \
+    ${GPU_FLAGS[@]+"${GPU_FLAGS[@]}"} \
     "$IMAGE_NAME" \
-    "${CLAUDE_ARGS[@]}"
+    ${AGENT_ARGS[@]+"${AGENT_ARGS[@]}"}
 fi
 
 # ---------- 並列バッチモード (tmux) ----------
@@ -495,26 +539,25 @@ write_batch_script() {
     prefix=(flock -x "$LOCK_DIR/gpu-$gpu_idx.lock")
   fi
 
-  local cmd=("${prefix[@]}" docker run --rm -it
+  local cmd=(${prefix[@]+"${prefix[@]}"} docker run --rm -it
     -v "$WORKSPACE_DIR:/workspaces"
-    -v "$HOME/.claude:/home/claude/.claude"
-    "${CLAUDE_JSON_MOUNT[@]}"
-    "${SYMLINK_MOUNTS[@]}"
+    "${AGENT_MOUNTS[@]}"
+    "${AGENT_ENV[@]}"
+    ${SYMLINK_MOUNTS[@]+"${SYMLINK_MOUNTS[@]}"}
     "${TERM_ENV[@]}"
-    "${GH_TOKEN_FLAGS[@]}"
-    "${HF_TOKEN_FLAGS[@]}"
-    "${HF_CACHE_MOUNT[@]}"
-    "${MANUAL_ASSETS_MOUNT[@]}"
-    "${MANUAL_ASSETS_ENV[@]}"
+    ${GH_TOKEN_FLAGS[@]+"${GH_TOKEN_FLAGS[@]}"}
+    ${HF_TOKEN_FLAGS[@]+"${HF_TOKEN_FLAGS[@]}"}
+    ${HF_CACHE_MOUNT[@]+"${HF_CACHE_MOUNT[@]}"}
+    ${MANUAL_ASSETS_MOUNT[@]+"${MANUAL_ASSETS_MOUNT[@]}"}
+    ${MANUAL_ASSETS_ENV[@]+"${MANUAL_ASSETS_ENV[@]}"}
     -e "REPORT_LANG=$REPORT_LANG"
     -e "REPRODUCE_LEVEL=$REPRODUCE_LEVEL"
     -v "$PIXI_CACHE_VOLUME:/home/claude/.cache/rattler"
     -w "/workspaces/$name"
     --shm-size=8g
-    "${gpu_args[@]}"
-    "${ENV_FLAGS[@]}"
+    ${gpu_args[@]+"${gpu_args[@]}"}
     "$IMAGE_NAME"
-    "${CLAUDE_ARGS[@]}")
+    ${AGENT_ARGS[@]+"${AGENT_ARGS[@]}"})
 
   {
     printf '#!/usr/bin/env bash\nexec'
@@ -537,7 +580,7 @@ for i in $(seq 1 $(( ${#REPO_NAMES[@]} - 1 ))); do
 done
 
 log "launched ${#REPO_NAMES[@]} containers in tmux session: $SESSION_NAME"
-log "inside each Claude Code, run: /reimplement"
+log "inside each $AGENT_NAME, run: $SKILL_COMMAND"
 log "tmux cheat sheet:"
 log "  Ctrl+b → n  next window"
 log "  Ctrl+b → p  previous window"

@@ -20,7 +20,7 @@
   <img alt="Status: early OSS" src="https://img.shields.io/badge/status-early_OSS-2ea44f">
 </p>
 
-`paper-reproducer` is a Claude Code plugin for reproducing CV paper repositories from a GitHub URL. It clones the target repo, analyzes dependency files, converts the environment to Pixi, runs the available inference or demo path, retries with diagnostics, and writes a reproducibility report.
+`paper-reproducer` reproduces CV paper repositories from a GitHub URL using Claude Code or Codex CLI. It clones the target repo, analyzes dependency files, converts the environment to Pixi, runs the available inference or demo path, retries with diagnostics, and writes a reproducibility report.
 
 It is built for the expensive middle of AI consulting and applied research work: deciding whether a paper repo can be made to run, what blocked it, and what evidence can be handed to a client or teammate.
 
@@ -53,7 +53,7 @@ Reproducing paper code is rarely blocked by one hard algorithmic problem. It is 
 Prerequisites:
 
 - Docker
-- Claude Code
+- A Claude Code or Codex account (both CLIs are installed in the Docker image)
 - Python 3
 - NVIDIA Container Toolkit for GPU workloads
 - `tmux` and `flock` for batch mode
@@ -71,6 +71,34 @@ When Claude Code opens inside the container, run:
 ```
 
 For Japanese reports, omit `--lang en` or pass `--lang ja`.
+
+### Using Codex
+
+Choose Codex with `--agent codex`:
+
+```bash
+./bootstrap.sh --agent codex --lang en https://github.com/some-user/some-paper.git
+```
+
+When Codex opens inside the container, run:
+
+```text
+$paper-reproduce:reimplement
+```
+
+Codex reads the same skills, schemas, and report templates as Claude Code. Existing images built before Codex support are rebuilt automatically. Claude Code remains the default; select it explicitly with `--agent claude`.
+
+The host's `${CODEX_HOME:-~/.codex}` is mounted read-write so Codex can reuse settings, login credentials, and refreshed tokens. Model and reasoning settings come from its `config.toml`. Codex uses file-based credentials inside the container. If your host login is stored in the OS keyring, create a file-based login first:
+
+```bash
+codex -c 'cli_auth_credentials_store="file"' login
+# Or authenticate with an API key through stdin:
+printenv OPENAI_API_KEY | codex -c 'cli_auth_credentials_store="file"' login --with-api-key
+```
+
+With no saved login, choose **Sign in with Device Code** in the container. See [Codex authentication](https://learn.chatgpt.com/docs/auth#login-on-headless-devices). For a separate container profile, point `CODEX_HOME` at another directory; host-specific MCP commands, hooks, and absolute paths in the selected configuration need to be usable inside Linux. Only the selected CLI's settings directory is mounted.
+
+Both CLIs run with their internal approval prompts disabled, using Docker as the execution boundary. Their mounted directories remain writable. The bundled Codex skills are discovered through `/etc/codex/skills`, as described in [Codex skill discovery](https://learn.chatgpt.com/docs/build-skills#where-to-save-skills).
 
 ## Example Output
 
@@ -121,9 +149,12 @@ Pass multiple URLs or a file of URLs to launch parallel jobs in `tmux`.
 ```bash
 ./bootstrap.sh url1.git url2.git url3.git
 ./bootstrap.sh --repos repos.txt
+./bootstrap.sh --agent codex --repos repos.txt
 ```
 
 In GPU environments, batch mode assigns free GPUs with `--gpus device=N` and `flock` so one GPU slot is used by one job at a time.
+
+Each window is interactive: enter `/reimplement` for Claude Code or `$paper-reproduce:reimplement` for Codex.
 
 ## License-Gated Assets (SMPL, SMAL, ...)
 
@@ -143,15 +174,19 @@ Check status anytime with `./bootstrap.sh --list-assets`. Missing assets never b
 
 | Option | Purpose |
 |---|---|
+| `--agent <name>` | Agent CLI: `claude` (default) or `codex` |
 | `--repos <file>` | Read target repository URLs from a file |
 | `--rebuild` | Force Docker image rebuild |
 | `--fresh` | Remove existing clones and clone again |
+| `--full` | Include training and quantitative claim verification (both agents) |
 | `--lang <code>` | Report language: `ja` or `en` |
 | `--list-assets` | Show manual-asset registry status (license-gated models) and exit |
 | `-h`, `--help` | Show help |
 
 | Environment variable | Purpose |
 |---|---|
+| `PAPER_REPRODUCER_AGENT` | Default CLI; overridden by `--agent` |
+| `CODEX_HOME` | Host Codex settings and auth directory, default `~/.codex` |
 | `WORKSPACE_DIR` | Host clone directory, default `~/paper-reproduce-workspaces` |
 | `MANUAL_ASSETS_DIR` | Dir for license-gated assets (SMPL/SMAL, ...), default `./manual-assets` (gitignored) |
 | `REPORT_LANG` | Same as `--lang`; overridden by `--lang` |
@@ -190,10 +225,12 @@ Planned commercial work belongs above the OSS core: private support, audit-pack 
 - Follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - Use [Semantic Versioning 2.0.0](https://semver.org/).
 - See [CHANGELOG.md](./CHANGELOG.md) for release notes.
+- Run tests with `pytest -q tests/` (install with `pixi global install pytest`). Launch tests use fake CLIs and require no Docker, GPU, or account credentials. Use `CODEX_BINARY=codex pytest -q tests/` to also verify discovery with a real Codex CLI. CI additionally builds the image and checks both installed CLIs.
 
 ## References
 
 - [Pixi](https://pixi.sh/)
   - [denkiwakame - Pixi Advent Calendar 2024](https://denkiwakame.notion.site/2ba3175c6b6a80d19141f5407c39ad4e?v=2ba3175c6b6a80a7acfe000c6c1b2117)
 - [Claude Code](https://www.claude.com/product/claude-code)
+- [Codex CLI](https://learn.chatgpt.com/docs/cli)
 - [karpathy/autoresearch](https://github.com/karpathy/autoresearch)

@@ -113,14 +113,17 @@ jobs:
           python3 -m unittest discover -s tests -v
 
   docker-build:
-    name: Docker Build Test
+    name: Docker Build Test (${{ matrix.agent }})
+    strategy:
+      matrix:
+        agent: [claude, codex]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Build Docker image
         run: |
-          docker build -t paper-reproduce-test paper-reproduce-skills/
+          docker build --build-arg AGENT=${{ matrix.agent }} -t paper-reproduce-test paper-reproduce-skills/
 
       - name: Verify image contents
         run: |
@@ -137,9 +140,19 @@ jobs:
           docker run --rm --entrypoint="" paper-reproduce-test \
             bash -c 'test "$(readlink -f /etc/codex/skills)" = /paper-reproduce-skills/skills'
           docker run --rm paper-reproduce-test --version
-          docker run --rm -e PAPER_REPRODUCER_AGENT=codex paper-reproduce-test --version
+
+      - name: Verify only the selected agent is installed
+        env:
+          SELECTED_AGENT: ${{ matrix.agent }}
+        run: |
+          other=claude
+          if [ "$SELECTED_AGENT" = claude ]; then other=codex; fi
+          docker run --rm --entrypoint bash paper-reproduce-test \
+            -c 'command -v "$1" && ! command -v "$2"' -- "$SELECTED_AGENT" "$other"
+          test "$(docker image inspect paper-reproduce-test --format '{{ index .Config.Labels "paper-reproducer.agent" }}')" = "$SELECTED_AGENT"
 
       - name: Verify Claude Code version (>= 2.1.144, opus[1m] support)
+        if: matrix.agent == 'claude'
         run: |
           ver="$(docker run --rm --entrypoint="" paper-reproduce-test claude --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
           echo "claude version: $ver"

@@ -18,7 +18,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKERFILE_DIR="$SCRIPT_DIR/paper-reproduce-skills"
-IMAGE_NAME="${IMAGE_NAME:-paper-reproduce}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-$HOME/paper-reproduce-workspaces}"
 PIXI_CACHE_VOLUME="${PIXI_CACHE_VOLUME:-paper-reproduce-pixi-cache}"
 # ライセンス登録が必須で自動 DL できない手動資産 (SMPL/SMAL 系等) の「正本」置き場。
@@ -72,6 +71,7 @@ Options:
 Environment:
   PAPER_REPRODUCER_AGENT  Same as --agent; overridden by --agent
   CODEX_HOME        Host Codex config/auth dir (default: ~/.codex)
+  IMAGE_NAME        Docker image name (default: paper-reproduce-<agent>)
   WORKSPACE_DIR         Host clone dir (default: ~/paper-reproduce-workspaces)
   MANUAL_ASSETS_DIR     License-gated asset dir (default: ./manual-assets, gitignored)
   MANUAL_ASSETS_STAGING Non-FUSE staging copy for Docker mount
@@ -130,6 +130,8 @@ case "$AGENT" in
   codex)  AGENT_NAME="Codex"; SKILL_COMMAND="\$paper-reproduce:reimplement" ;;
   *) die "unsupported --agent '$AGENT' (expected: claude | codex)" ;;
 esac
+
+IMAGE_NAME="${IMAGE_NAME:-paper-reproduce-$AGENT}"
 
 if [[ -n "$REPOS_FILE" ]]; then
   [[ -f "$REPOS_FILE" ]] || die "repos file not found: $REPOS_FILE"
@@ -191,12 +193,12 @@ command -v python3 >/dev/null 2>&1 || die "python3 not found on PATH (required f
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 IMAGE_UID_LABEL=""
-IMAGE_AGENTS_LABEL=""
+IMAGE_AGENT_LABEL=""
 if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
   IMAGE_UID_LABEL="$(docker image inspect "$IMAGE_NAME" \
     --format '{{ index .Config.Labels "host.uid" }}{{":"}}{{ index .Config.Labels "host.gid" }}' 2>/dev/null || true)"
-  IMAGE_AGENTS_LABEL="$(docker image inspect "$IMAGE_NAME" \
-    --format '{{ index .Config.Labels "paper-reproducer.agents" }}' 2>/dev/null || true)"
+  IMAGE_AGENT_LABEL="$(docker image inspect "$IMAGE_NAME" \
+    --format '{{ index .Config.Labels "paper-reproducer.agent" }}' 2>/dev/null || true)"
 fi
 NEED_BUILD=0
 if [[ "$REBUILD" == "1" ]]; then NEED_BUILD=1
@@ -204,8 +206,8 @@ elif ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then NEED_BUILD=1
 elif [[ "$IMAGE_UID_LABEL" != "${HOST_UID}:${HOST_GID}" ]]; then
   log "image was built with UID/GID '$IMAGE_UID_LABEL', host is '${HOST_UID}:${HOST_GID}' — rebuilding"
   NEED_BUILD=1
-elif [[ "$IMAGE_AGENTS_LABEL" != "claude,codex" ]]; then
-  log "image predates agent selection — rebuilding"
+elif [[ "$IMAGE_AGENT_LABEL" != "$AGENT" ]]; then
+  log "image agent '$IMAGE_AGENT_LABEL' does not match '$AGENT' — rebuilding"
   NEED_BUILD=1
 fi
 if [[ "$NEED_BUILD" == "1" ]]; then
@@ -220,6 +222,7 @@ if [[ "$NEED_BUILD" == "1" ]]; then
     CLAUDE_CODE_BUILD="$(date +%Y%m%d)"
   fi
   docker build \
+    --build-arg "AGENT=$AGENT" \
     --build-arg "USER_UID=${HOST_UID}" \
     --build-arg "USER_GID=${HOST_GID}" \
     --build-arg "CLAUDE_CODE_BUILD=$CLAUDE_CODE_BUILD" \

@@ -53,7 +53,7 @@
 前提ツール:
 
 - Docker
-- Claude Code または Codex のアカウント（両 CLI は Docker イメージに同梱）
+- Claude Code または Codex のアカウント（選択した CLI だけを Docker イメージに同梱）
 - Python 3
 - GPUを使う場合は NVIDIA Container Toolkit
 - バッチモードでは `tmux` と `flock`
@@ -90,7 +90,7 @@ $ ./bootstrap.sh --lang en https://github.com/some-user/some-paper.git
 $paper-reproduce:reimplement
 ```
 
-Claude Code と同じスキル・スキーマ・レポートテンプレートを使います。Codex 対応前のイメージは自動で再ビルドされます。既定は Claude Code で、`--agent claude` でも明示できます。
+Claude Code と同じスキル・スキーマ・レポートテンプレートを使います。イメージは `paper-reproduce-codex` と `paper-reproduce-claude` に分かれ、選択した CLI だけを含みます。`IMAGE_NAME` で名前を指定した場合も、別エージェント用なら自動で再ビルドされます。既定は Claude Code で、`--agent claude` でも明示できます。
 
 ホストの `${CODEX_HOME:-~/.codex}` を読み書き可能な状態でマウントし、設定・ログイン情報・更新されたトークンを引き継ぎます。モデルと reasoning effort は `config.toml` の設定に従います。コンテナ内ではファイル形式の認証情報を使うため、ホストのログインが OS のキーチェーンに保存されている場合は、先に次を実行してください。
 
@@ -190,6 +190,7 @@ GPU環境では、空いているGPUを `--gpus device=N` で割り当て、`flo
 | 環境変数 | 役割 |
 |---|---|
 | `PAPER_REPRODUCER_AGENT` | 既定の CLI。`--agent` が優先 |
+| `IMAGE_NAME` | Docker イメージ名。既定は `paper-reproduce-<agent>` |
 | `CODEX_HOME` | ホストの Codex 設定・認証ディレクトリ。既定は `~/.codex` |
 | `WORKSPACE_DIR` | clone先。デフォルトは `~/paper-reproduce-workspaces` |
 | `MANUAL_ASSETS_DIR` | ライセンスゲート資産(SMPL/SMAL 等)の置き場。デフォルトは `./manual-assets`(gitignore 済み) |
@@ -229,7 +230,7 @@ GPU環境では、空いているGPUを `--gpus device=N` で割り当て、`flo
 - コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) に従います。
 - バージョニングは [Semantic Versioning 2.0.0](https://semver.org/lang/ja/) に従います。
 - リリースノートは [CHANGELOG.md](./CHANGELOG.md) を参照してください。
-- テストは `pytest -q tests/` で実行します（導入は `pixi global install pytest`）。起動テストでは CLI を置き換えるため Docker・GPU・認証情報は不要です。`CODEX_BINARY=codex pytest -q tests/` では実際の Codex によるスキル検出も確認します。CI ではこれらに加え、イメージのビルドと両 CLI の起動を確認します。
+- テストは `pytest -q tests/` で実行します（導入は `pixi global install pytest`）。起動テストでは CLI を置き換えるため Docker・GPU・認証情報は不要です。`CODEX_BINARY=codex pytest -q tests/` では実際の Codex によるスキル検出も確認します。CI ではこれらに加え、各イメージで選択した CLI の起動と、もう一方の CLI が入っていないことを確認します。
 
 ## References
 

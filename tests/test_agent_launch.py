@@ -24,7 +24,7 @@ if name == "docker" and args[:2] == ["image", "inspect"]:
         if "host.uid" in args[-1]:
             print(f"{os.getuid()}:{os.getgid()}")
         else:
-            print(os.environ.get("IMAGE_AGENTS", "claude,codex"))
+            print(os.environ.get("IMAGE_AGENT", args[2].removeprefix("paper-reproduce-")))
 elif name == "git" and args[0] == "clone":
     pathlib.Path(args[-1], ".git").mkdir(parents=True)
 elif name == "tmux" and args[0] in {"new-session", "new-window"}:
@@ -56,6 +56,8 @@ def launch_env(tmp_path: Path) -> dict[str, str]:
         "gh",
         "claude",
         "codex",
+        "curl",
+        "pixi",
     ):
         script = bin_dir / name
         script.write_text(f"#!{sys.executable}\n{FAKE_TOOL}")
@@ -167,13 +169,63 @@ def test_invalid_agent_fails_before_side_effects(launch_env, options) -> None:
     assert not Path(launch_env["CALL_LOG"]).exists()
 
 
-@pytest.mark.parametrize("agents_label", ["claude,codex", "<no value>"])
-def test_old_image_rebuilt_for_codex(launch_env, agents_label) -> None:
-    launch_env["IMAGE_AGENTS"] = agents_label
+@pytest.mark.parametrize(
+    "agent_label", ["codex", "claude", "claude,codex", "<no value>"]
+)
+def test_old_image_rebuilt_for_codex(launch_env, agent_label) -> None:
+    launch_env["IMAGE_AGENT"] = agent_label
     result = run(BOOTSTRAP, launch_env, "--agent=codex", "https://example.test/one.git")
     assert result.returncode == 0, result.stderr
     builds = [args for args in calls(launch_env, "docker") if args[0] == "build"]
-    assert bool(builds) == (agents_label != "claude,codex")
+    assert bool(builds) == (agent_label != "codex")
+
+
+@pytest.mark.parametrize("agent", ["claude", "codex"])
+@pytest.mark.parametrize("image_override", [None, "custom-reproducer:local"])
+def test_build_selects_agent_and_image(launch_env, agent, image_override) -> None:
+    if image_override:
+        launch_env["IMAGE_NAME"] = image_override
+    result = run(
+        BOOTSTRAP,
+        launch_env,
+        "--agent",
+        agent,
+        "--rebuild",
+        "https://example.test/one.git",
+    )
+    assert result.returncode == 0, result.stderr
+    image_name = image_override or f"paper-reproduce-{agent}"
+    build = next(args for args in calls(launch_env, "docker") if args[0] == "build")
+    assert f"AGENT={agent}" in build
+    assert build[build.index("-t") + 1] == image_name
+    launched = next(args for args in calls(launch_env, "docker") if args[0] == "run")
+    assert image_name in launched
+
+
+@pytest.mark.parametrize("agent", ["claude", "codex"])
+def test_dockerfile_runs_only_selected_installer(launch_env, agent) -> None:
+    launch_env["AGENT"] = agent
+    launch_env["CODEX_VERSION"] = "0.154.0"
+    dockerfile = (ROOT / "paper-reproduce-skills/Dockerfile").read_text()
+    # Execute the installer RUN commands with recorded stand-ins, without network access.
+    commands = [
+        line.removeprefix("RUN ")
+        for line in dockerfile.replace("\\\n", " ").splitlines()
+        if line.startswith("RUN ")
+        and any(
+            marker in line
+            for marker in ("claude.ai/install.sh", "rtk-cli", "CODEX_VERSION")
+        )
+    ]
+    assert commands
+    for command in commands:
+        subprocess.run(["bash", "-c", command], env=launch_env, check=True, timeout=30)
+    if agent == "codex":
+        assert calls(launch_env, "pixi") == [["global", "install", "codex=0.154.0"]]
+        assert not calls(launch_env, "curl")
+    else:
+        assert calls(launch_env, "pixi") == [["global", "install", "rtk-cli"]]
+        assert calls(launch_env, "curl") == [["-fsSL", "https://claude.ai/install.sh"]]
 
 
 def test_codex_batch_gpu_lock_and_repo_file(launch_env, tmp_path) -> None:

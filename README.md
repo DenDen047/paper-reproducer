@@ -53,7 +53,7 @@ Reproducing paper code is rarely blocked by one hard algorithmic problem. It is 
 Prerequisites:
 
 - Docker
-- A Claude Code or Codex account (both CLIs are installed in the Docker image)
+- A Claude Code or Codex account (only the selected CLI is installed in the Docker image)
 - Python 3
 - NVIDIA Container Toolkit for GPU workloads
 - `tmux` and `flock` for batch mode
@@ -86,7 +86,7 @@ When Codex opens inside the container, run:
 $paper-reproduce:reimplement
 ```
 
-Codex reads the same skills, schemas, and report templates as Claude Code. Existing images built before Codex support are rebuilt automatically. Claude Code remains the default; select it explicitly with `--agent claude`.
+Codex reads the same skills, schemas, and report templates as Claude Code. Images are separate: `paper-reproduce-codex` and `paper-reproduce-claude`. Each contains only its selected CLI. `IMAGE_NAME` overrides the image name; an image for another agent is rebuilt automatically. Claude Code remains the default; select it explicitly with `--agent claude`.
 
 The host's `${CODEX_HOME:-~/.codex}` is mounted read-write so Codex can reuse settings, login credentials, and refreshed tokens. Model and reasoning settings come from its `config.toml`. Codex uses file-based credentials inside the container. If your host login is stored in the OS keyring, create a file-based login first:
 
@@ -186,6 +186,7 @@ Check status anytime with `./bootstrap.sh --list-assets`. Missing assets never b
 | Environment variable | Purpose |
 |---|---|
 | `PAPER_REPRODUCER_AGENT` | Default CLI; overridden by `--agent` |
+| `IMAGE_NAME` | Docker image name, default `paper-reproduce-<agent>` |
 | `CODEX_HOME` | Host Codex settings and auth directory, default `~/.codex` |
 | `WORKSPACE_DIR` | Host clone directory, default `~/paper-reproduce-workspaces` |
 | `MANUAL_ASSETS_DIR` | Dir for license-gated assets (SMPL/SMAL, ...), default `./manual-assets` (gitignored) |
@@ -225,7 +226,7 @@ Planned commercial work belongs above the OSS core: private support, audit-pack 
 - Follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - Use [Semantic Versioning 2.0.0](https://semver.org/).
 - See [CHANGELOG.md](./CHANGELOG.md) for release notes.
-- Run tests with `pytest -q tests/` (install with `pixi global install pytest`). Launch tests use fake CLIs and require no Docker, GPU, or account credentials. Use `CODEX_BINARY=codex pytest -q tests/` to also verify discovery with a real Codex CLI. CI additionally builds the image and checks both installed CLIs.
+- Run tests with `pytest -q tests/` (install with `pixi global install pytest`). Launch tests use fake CLIs and require no Docker, GPU, or account credentials. Use `CODEX_BINARY=codex pytest -q tests/` to also verify discovery with a real Codex CLI. CI additionally builds the image and checks each selected CLI and the absence of the other CLI.
 
 ## References
 

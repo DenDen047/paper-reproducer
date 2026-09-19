@@ -14,6 +14,8 @@
 
 ### Fixed
 
+- 選択したエージェントの CLI だけをインストールする。既定のイメージ名を `paper-reproduce-claude` / `paper-reproduce-codex` に分け、Codex 使用時の Claude Code・rtk-cli の不要なインストールを解消。
+
 - 既存の tmux 起動スクリプトを維持し、Codex 設定ディレクトリと Bash 3.2 の空配列展開に対応。
 
 ### Changed — コンテナのモデルを Opus に固定

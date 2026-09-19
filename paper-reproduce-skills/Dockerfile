@@ -1,7 +1,5 @@
 FROM ghcr.io/prefix-dev/pixi:jammy
 
-LABEL paper-reproducer.agents="claude,codex"
-
 # CV論文リポジトリは libgl, ffmpeg 等を暗黙に要求することが多い
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -51,6 +49,14 @@ COPY --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
 USER claude
 
+# 両エージェントが使う schema 検証と GitHub 検索ツール。
+RUN pixi global install check-jsonschema gh jq
+
+# 選択した CLI だけを導入する。共通レイヤーは agent を切り替えても再利用する。
+ARG AGENT=claude
+RUN case "$AGENT" in claude|codex) ;; *) echo "Unsupported agent: $AGENT" >&2; exit 1 ;; esac
+LABEL paper-reproducer.agent="${AGENT}"
+
 # Claude Code 本体は native installer で claude ユーザーのホームに置く。
 # `npm install -g` だと /usr/lib/node_modules/ が root 所有になり、
 # 非 root 実行下では auto-update が失敗するため。
@@ -65,7 +71,7 @@ USER claude
 # bootstrap.sh は自動 build では日単位、--rebuild では秒単位の値を渡す
 # (--rebuild は同日 2 回目でも必ず cache を破棄して最新版を取得する)。
 ARG CLAUDE_CODE_BUILD=unset
-RUN curl -fsSL https://claude.ai/install.sh | bash
+RUN if [ "$AGENT" = claude ]; then curl -fsSL https://claude.ai/install.sh | bash; fi
 
 # bootstrap.sh が host の ~/.claude/settings.json を mount するため、
 # host 側の PreToolUse:Bash hook (rtk hook claude) が container 内にも見える。
@@ -76,13 +82,14 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # (scripts/search_github_issues.sh) と analysis.json の jq パースに必須。
 # 無いと "gh/jq が無く Phase 4 では関連 Issue 検索をスキップ" になる。
 # pixi-only ポリシーに従い conda-forge から入れる (apt/brew は使わない)。
-RUN pixi global install rtk-cli check-jsonschema gh jq
+RUN if [ "$AGENT" = claude ]; then pixi global install rtk-cli; fi
 
 # conda-forge の native CLI を使い、npm global の更新権限問題を避ける。
 ARG CODEX_VERSION=0.154.0
-RUN pixi global install "codex=${CODEX_VERSION}"
+RUN if [ "$AGENT" = codex ]; then pixi global install "codex=${CODEX_VERSION}"; fi
 
 ENV PATH=/home/claude/.pixi/bin:/home/claude/.local/bin:$PATH
+ENV PAPER_REPRODUCER_AGENT=${AGENT}
 
 WORKDIR /workspace
 
